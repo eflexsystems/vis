@@ -1,6 +1,11 @@
 (function(f){if(typeof exports==="object"&&typeof module!=="undefined"){module.exports=f()}else if(typeof define==="function"&&define.amd){define([],f)}else{var g;if(typeof window!=="undefined"){g=window}else if(typeof global!=="undefined"){g=global}else if(typeof self!=="undefined"){g=self}else{g=this}g.vis = f()}})(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
 'use strict';
 
+exports.Timeline = require('./lib/timeline/Timeline');
+
+},{"./lib/timeline/Timeline":18}],2:[function(require,module,exports){
+'use strict';
+
 var util = require('./util');
 var Queue = require('./Queue');
 
@@ -890,7 +895,7 @@ DataSet.prototype._updateItem = function (item) {
 
 module.exports = DataSet;
 
-},{"./Queue":3,"./util":32}],2:[function(require,module,exports){
+},{"./Queue":4,"./util":33}],3:[function(require,module,exports){
 'use strict';
 
 var util = require('./util');
@@ -1235,7 +1240,7 @@ module.exports = DataView;
 
 // nothing interesting for me :-(
 
-},{"./DataSet":1,"./util":32}],3:[function(require,module,exports){
+},{"./DataSet":2,"./util":33}],4:[function(require,module,exports){
 /**
  * A queue
  * @param {Object} options
@@ -1437,7 +1442,7 @@ Queue.prototype.flush = function () {
 
 module.exports = Queue;
 
-},{}],4:[function(require,module,exports){
+},{}],5:[function(require,module,exports){
 'use strict';
 
 var Hammer = require('./module/hammer');
@@ -1506,7 +1511,7 @@ exports.offTouch = function (hammer, callback) {
  */
 exports.offRelease = exports.offTouch;
 
-},{"./module/hammer":5}],5:[function(require,module,exports){
+},{"./module/hammer":6}],6:[function(require,module,exports){
 // Only load hammer.js when in a browser environment
 // (loading hammer.js in a node.js environment gives errors)
 'use strict';
@@ -1523,14 +1528,14 @@ if (typeof window !== 'undefined') {
   };
 }
 
-},{"hammerjs":34,"propagating-hammerjs":36}],6:[function(require,module,exports){
+},{"hammerjs":35,"propagating-hammerjs":37}],7:[function(require,module,exports){
 // first check if moment.js is already loaded in the browser window, if so,
 // use this instance. Else, load via commonjs.
 'use strict';
 
 module.exports = typeof window !== 'undefined' && window['moment'] || require('moment');
 
-},{"moment":"moment"}],7:[function(require,module,exports){
+},{"moment":"moment"}],8:[function(require,module,exports){
 (function (global){
 'use strict';
 
@@ -1556,8 +1561,8 @@ if (!_rng) {
   var _rnds = new Array(16);
   _rng = function () {
     for (var i = 0, r; i < 16; i++) {
-      if ((i & 3) === 0) r = Math.random() * 4294967296;
-      _rnds[i] = r >>> ((i & 3) << 3) & 255;
+      if ((i & 0x03) === 0) r = Math.random() * 0x100000000;
+      _rnds[i] = r >>> ((i & 0x03) << 3) & 0xff;
     }
 
     return _rnds;
@@ -1579,7 +1584,7 @@ if (!_rng) {
 var _byteToHex = [];
 var _hexToByte = {};
 for (var i = 0; i < 256; i++) {
-  _byteToHex[i] = (i + 256).toString(16).substr(1);
+  _byteToHex[i] = (i + 0x100).toString(16).substr(1);
   _hexToByte[_byteToHex[i]] = i;
 }
 
@@ -1620,10 +1625,10 @@ function unparse(buf, offset) {
 var _seedBytes = _rng();
 
 // Per 4.5, create and 48-bit node id, (47 random bits + multicast bit = 1)
-var _nodeId = [_seedBytes[0] | 1, _seedBytes[1], _seedBytes[2], _seedBytes[3], _seedBytes[4], _seedBytes[5]];
+var _nodeId = [_seedBytes[0] | 0x01, _seedBytes[1], _seedBytes[2], _seedBytes[3], _seedBytes[4], _seedBytes[5]];
 
 // Per 4.2.2, randomize (14 bit) clockseq
-var _clockseq = (_seedBytes[6] << 8 | _seedBytes[7]) & 16383;
+var _clockseq = (_seedBytes[6] << 8 | _seedBytes[7]) & 0x3fff;
 
 // Previous uuid creation time
 var _lastMSecs = 0,
@@ -1653,7 +1658,7 @@ function v1(options, buf, offset) {
 
   // Per 4.2.1.2, Bump clockseq on clock regression
   if (dt < 0 && options.clockseq === undefined) {
-    clockseq = clockseq + 1 & 16383;
+    clockseq = clockseq + 1 & 0x3fff;
   }
 
   // Reset nsecs if clock regresses (new clockseq) or we've moved onto a new
@@ -1675,26 +1680,26 @@ function v1(options, buf, offset) {
   msecs += 12219292800000;
 
   // `time_low`
-  var tl = ((msecs & 268435455) * 10000 + nsecs) % 4294967296;
-  b[i++] = tl >>> 24 & 255;
-  b[i++] = tl >>> 16 & 255;
-  b[i++] = tl >>> 8 & 255;
-  b[i++] = tl & 255;
+  var tl = ((msecs & 0xfffffff) * 10000 + nsecs) % 0x100000000;
+  b[i++] = tl >>> 24 & 0xff;
+  b[i++] = tl >>> 16 & 0xff;
+  b[i++] = tl >>> 8 & 0xff;
+  b[i++] = tl & 0xff;
 
   // `time_mid`
-  var tmh = msecs / 4294967296 * 10000 & 268435455;
-  b[i++] = tmh >>> 8 & 255;
-  b[i++] = tmh & 255;
+  var tmh = msecs / 0x100000000 * 10000 & 0xfffffff;
+  b[i++] = tmh >>> 8 & 0xff;
+  b[i++] = tmh & 0xff;
 
   // `time_high_and_version`
-  b[i++] = tmh >>> 24 & 15 | 16; // include version
-  b[i++] = tmh >>> 16 & 255;
+  b[i++] = tmh >>> 24 & 0xf | 0x10; // include version
+  b[i++] = tmh >>> 16 & 0xff;
 
   // `clock_seq_hi_and_reserved` (Per 4.2.2 - include variant)
-  b[i++] = clockseq >>> 8 | 128;
+  b[i++] = clockseq >>> 8 | 0x80;
 
   // `clock_seq_low`
-  b[i++] = clockseq & 255;
+  b[i++] = clockseq & 0xff;
 
   // `node`
   var node = options.node || _nodeId;
@@ -1721,8 +1726,8 @@ function v4(options, buf, offset) {
   var rnds = options.random || (options.rng || _rng)();
 
   // Per 4.4, set bits for version and `clock_seq_hi_and_reserved`
-  rnds[6] = rnds[6] & 15 | 64;
-  rnds[8] = rnds[8] & 63 | 128;
+  rnds[6] = rnds[6] & 0x0f | 0x40;
+  rnds[8] = rnds[8] & 0x3f | 0x80;
 
   // Copy bytes to buffer, if provided
   if (buf) {
@@ -1744,7 +1749,7 @@ uuid.unparse = unparse;
 module.exports = uuid;
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],8:[function(require,module,exports){
+},{}],9:[function(require,module,exports){
 'use strict';
 
 var keycharm = require('keycharm');
@@ -1786,14 +1791,15 @@ function Activator(container) {
     });
   });
 
-  // attach a tap event to the window, in order to deactivate when clicking outside the timeline
-  this.bodyHammer = Hammer(document && document.body, { prevent_default: false });
-  this.bodyHammer.on('tap', function (event) {
-    // deactivate when clicked outside the container
-    if (!_hasParent(event.target, container)) {
-      me.deactivate();
-    }
-  });
+  // attach a click event to the window, in order to deactivate when clicking outside the timeline
+  if (document && document.body) {
+    this.onClick = function (event) {
+      if (!_hasParent(event.target, container)) {
+        me.deactivate();
+      }
+    };
+    document.body.addEventListener('click', this.onClick);
+  }
 
   if (this.keycharm !== undefined) {
     this.keycharm.destroy();
@@ -1819,9 +1825,14 @@ Activator.prototype.destroy = function () {
   // remove dom
   this.dom.overlay.parentNode.removeChild(this.dom.overlay);
 
+  // remove global event listener
+  if (this.onClick) {
+    document.body.removeEventListener('click', this.onClick);
+  }
+
   // cleanup hammer instances
+  this.hammer.destroy();
   this.hammer = null;
-  this.bodyHammer = null;
   // FIXME: cleaning up hammer instances doesn't work (Timeline not removed from memory)
 };
 
@@ -1894,16 +1905,28 @@ function _hasParent(element, parent) {
 
 module.exports = Activator;
 
-},{"../module/hammer":5,"../util":32,"emitter-component":33,"keycharm":35}],9:[function(require,module,exports){
+},{"../module/hammer":6,"../util":33,"emitter-component":34,"keycharm":36}],10:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', {
   value: true
 });
 
-var _createClass = (function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ('value' in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; })();
+var _createClass = (function () {
+  function defineProperties(target, props) {
+    for (var i = 0; i < props.length; i++) {
+      var descriptor = props[i];descriptor.enumerable = descriptor.enumerable || false;descriptor.configurable = true;if ('value' in descriptor) descriptor.writable = true;Object.defineProperty(target, descriptor.key, descriptor);
+    }
+  }return function (Constructor, protoProps, staticProps) {
+    if (protoProps) defineProperties(Constructor.prototype, protoProps);if (staticProps) defineProperties(Constructor, staticProps);return Constructor;
+  };
+})();
 
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError('Cannot call a class as a function'); } }
+function _classCallCheck(instance, Constructor) {
+  if (!(instance instanceof Constructor)) {
+    throw new TypeError('Cannot call a class as a function');
+  }
+}
 
 var Hammer = require('../module/hammer');
 var hammerUtil = require('../hammerUtil');
@@ -1911,7 +1934,7 @@ var util = require('../util');
 
 var ColorPicker = (function () {
   function ColorPicker() {
-    var pixelRatio = arguments[0] === undefined ? 1 : arguments[0];
+    var pixelRatio = arguments.length <= 0 || arguments[0] === undefined ? 1 : arguments[0];
 
     _classCallCheck(this, ColorPicker);
 
@@ -1919,9 +1942,9 @@ var ColorPicker = (function () {
     this.generated = false;
     this.centerCoordinates = { x: 289 / 2, y: 289 / 2 };
     this.r = 289 * 0.49;
-    this.color = { r: 255, g: 255, b: 255, a: 1 };
+    this.color = { r: 255, g: 255, b: 255, a: 1.0 };
     this.hueCircle = undefined;
-    this.initialColor = { r: 255, g: 255, b: 255, a: 1 };
+    this.initialColor = { r: 255, g: 255, b: 255, a: 1.0 };
     this.previousColor = undefined;
     this.applied = false;
 
@@ -1988,7 +2011,7 @@ var ColorPicker = (function () {
      * @param setInitial
      */
     value: function setColor(color) {
-      var setInitial = arguments[1] === undefined ? true : arguments[1];
+      var setInitial = arguments.length <= 1 || arguments[1] === undefined ? true : arguments[1];
 
       if (color === 'none') {
         return;
@@ -2006,13 +2029,13 @@ var ColorPicker = (function () {
       if (util.isString(color) === true) {
         if (util.isValidRGB(color) === true) {
           var rgbaArray = color.substr(4).substr(0, color.length - 5).split(',');
-          rgba = { r: rgbaArray[0], g: rgbaArray[1], b: rgbaArray[2], a: 1 };
+          rgba = { r: rgbaArray[0], g: rgbaArray[1], b: rgbaArray[2], a: 1.0 };
         } else if (util.isValidRGBA(color) === true) {
           var rgbaArray = color.substr(5).substr(0, color.length - 6).split(',');
           rgba = { r: rgbaArray[0], g: rgbaArray[1], b: rgbaArray[2], a: rgbaArray[3] };
         } else if (util.isValidHex(color) === true) {
           var rgbObj = util.hexToRGB(color);
-          rgba = { r: rgbObj.r, g: rgbObj.g, b: rgbObj.b, a: 1 };
+          rgba = { r: rgbObj.r, g: rgbObj.g, b: rgbObj.b, a: 1.0 };
         }
       } else {
         if (color instanceof Object) {
@@ -2057,7 +2080,7 @@ var ColorPicker = (function () {
      * @private
      */
     value: function _hide() {
-      var storePrevious = arguments[0] === undefined ? true : arguments[0];
+      var storePrevious = arguments.length <= 0 || arguments[0] === undefined ? true : arguments[0];
 
       // store the previous color for next time;
       if (storePrevious === true) {
@@ -2118,7 +2141,7 @@ var ColorPicker = (function () {
      * @private
      */
     value: function _setColor(rgba) {
-      var setInitial = arguments[1] === undefined ? true : arguments[1];
+      var setInitial = arguments.length <= 1 || arguments[1] === undefined ? true : arguments[1];
 
       // store the initial color
       if (setInitial === true) {
@@ -2175,7 +2198,7 @@ var ColorPicker = (function () {
      * @private
      */
     value: function _updatePicker() {
-      var rgba = arguments[0] === undefined ? this.color : arguments[0];
+      var rgba = arguments.length <= 0 || arguments[0] === undefined ? this.color : arguments[0];
 
       var hsv = util.RGBToHSV(rgba.r, rgba.g, rgba.b);
       var ctx = this.colorPickerCanvas.getContext('2d');
@@ -2260,16 +2283,20 @@ var ColorPicker = (function () {
       this.arrowDiv.className = 'vis-arrow';
 
       this.opacityRange = document.createElement('input');
-      this.opacityRange.type = 'range';
-      this.opacityRange.min = '0';
-      this.opacityRange.max = '100';
+      try {
+        this.opacityRange.type = 'range'; // Not supported on IE9
+        this.opacityRange.min = '0';
+        this.opacityRange.max = '100';
+      } catch (err) {}
       this.opacityRange.value = '100';
       this.opacityRange.className = 'vis-range';
 
       this.brightnessRange = document.createElement('input');
-      this.brightnessRange.type = 'range';
-      this.brightnessRange.min = '0';
-      this.brightnessRange.max = '100';
+      try {
+        this.brightnessRange.type = 'range'; // Not supported on IE9
+        this.brightnessRange.min = '0';
+        this.brightnessRange.max = '100';
+      } catch (err) {}
       this.brightnessRange.value = '100';
       this.brightnessRange.className = 'vis-range';
 
@@ -2471,18 +2498,32 @@ var ColorPicker = (function () {
 exports['default'] = ColorPicker;
 module.exports = exports['default'];
 
-},{"../hammerUtil":4,"../module/hammer":5,"../util":32}],10:[function(require,module,exports){
+},{"../hammerUtil":5,"../module/hammer":6,"../util":33}],11:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', {
   value: true
 });
 
-var _createClass = (function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ('value' in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; })();
+var _createClass = (function () {
+  function defineProperties(target, props) {
+    for (var i = 0; i < props.length; i++) {
+      var descriptor = props[i];descriptor.enumerable = descriptor.enumerable || false;descriptor.configurable = true;if ('value' in descriptor) descriptor.writable = true;Object.defineProperty(target, descriptor.key, descriptor);
+    }
+  }return function (Constructor, protoProps, staticProps) {
+    if (protoProps) defineProperties(Constructor.prototype, protoProps);if (staticProps) defineProperties(Constructor, staticProps);return Constructor;
+  };
+})();
 
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { 'default': obj }; }
+function _interopRequireDefault(obj) {
+  return obj && obj.__esModule ? obj : { 'default': obj };
+}
 
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError('Cannot call a class as a function'); } }
+function _classCallCheck(instance, Constructor) {
+  if (!(instance instanceof Constructor)) {
+    throw new TypeError('Cannot call a class as a function');
+  }
+}
 
 var _ColorPicker = require('./ColorPicker');
 
@@ -2507,7 +2548,7 @@ var util = require('../util');
 
 var Configurator = (function () {
   function Configurator(parentModule, defaultContainer, configureOptions) {
-    var pixelRatio = arguments[3] === undefined ? 1 : arguments[3];
+    var pixelRatio = arguments.length <= 3 || arguments[3] === undefined ? 1 : arguments[3];
 
     _classCallCheck(this, Configurator);
 
@@ -2568,6 +2609,10 @@ var Configurator = (function () {
           this.options.filter = options;
           enabled = true;
         }
+        if (this.options.filter === false) {
+          enabled = false;
+        }
+
         this.options.enabled = enabled;
       }
       this._clean();
@@ -2718,16 +2763,20 @@ var Configurator = (function () {
      * @private
      */
     value: function _makeItem(path) {
-      var _this2 = this;
-
-      for (var _len = arguments.length, domElements = Array(_len > 1 ? _len - 1 : 0), _key = 1; _key < _len; _key++) {
-        domElements[_key - 1] = arguments[_key];
-      }
+      var _arguments = arguments,
+          _this2 = this;
 
       if (this.allowCreation === true) {
+        var _len, domElements, _key;
+
         (function () {
           var item = document.createElement('div');
           item.className = 'vis-network-configuration item s' + path.length;
+
+          for (_len = _arguments.length, domElements = Array(_len > 1 ? _len - 1 : 0), _key = 1; _key < _len; _key++) {
+            domElements[_key - 1] = _arguments[_key];
+          }
+
           domElements.forEach(function (element) {
             item.appendChild(element);
           });
@@ -2761,7 +2810,7 @@ var Configurator = (function () {
      * @private
      */
     value: function _makeLabel(name, path) {
-      var objectLabel = arguments[2] === undefined ? false : arguments[2];
+      var objectLabel = arguments.length <= 2 || arguments[2] === undefined ? false : arguments[2];
 
       var div = document.createElement('div');
       div.className = 'vis-network-configuration label s' + path.length;
@@ -2826,10 +2875,12 @@ var Configurator = (function () {
       var max = arr[2];
       var step = arr[3];
       var range = document.createElement('input');
-      range.type = 'range';
       range.className = 'vis-network-configuration range';
-      range.min = min;
-      range.max = max;
+      try {
+        range.type = 'range'; // not supported on IE9
+        range.min = min;
+        range.max = max;
+      } catch (err) {}
       range.step = step;
 
       if (value !== undefined) {
@@ -2992,8 +3043,8 @@ var Configurator = (function () {
      * @private
      */
     value: function _handleObject(obj) {
-      var path = arguments[1] === undefined ? [] : arguments[1];
-      var checkOnly = arguments[2] === undefined ? false : arguments[2];
+      var path = arguments.length <= 1 || arguments[1] === undefined ? [] : arguments[1];
+      var checkOnly = arguments.length <= 2 || arguments[2] === undefined ? false : arguments[2];
 
       var show = false;
       var filter = this.options.filter;
@@ -3106,7 +3157,7 @@ var Configurator = (function () {
   }, {
     key: '_constructOptions',
     value: function _constructOptions(value, path) {
-      var optionsObj = arguments[2] === undefined ? {} : arguments[2];
+      var optionsObj = arguments.length <= 2 || arguments[2] === undefined ? {} : arguments[2];
 
       var pointer = optionsObj;
 
@@ -3131,11 +3182,17 @@ var Configurator = (function () {
   }, {
     key: '_printOptions',
     value: function _printOptions() {
+      var options = this.getOptions();
+      this.optionsContainer.innerHTML = '<pre>var options = ' + JSON.stringify(options, null, 2) + '</pre>';
+    }
+  }, {
+    key: 'getOptions',
+    value: function getOptions() {
       var options = {};
       for (var i = 0; i < this.changedOptions.length; i++) {
         this._constructOptions(this.changedOptions[i].value, this.changedOptions[i].path, options);
       }
-      this.optionsContainer.innerHTML = '<pre>var options = ' + JSON.stringify(options, null, 2) + '</pre>';
+      return options;
     }
   }]);
 
@@ -3145,16 +3202,28 @@ var Configurator = (function () {
 exports['default'] = Configurator;
 module.exports = exports['default'];
 
-},{"../util":32,"./ColorPicker":9}],11:[function(require,module,exports){
+},{"../util":33,"./ColorPicker":10}],12:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, '__esModule', {
   value: true
 });
 
-var _createClass = (function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ('value' in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; })();
+var _createClass = (function () {
+  function defineProperties(target, props) {
+    for (var i = 0; i < props.length; i++) {
+      var descriptor = props[i];descriptor.enumerable = descriptor.enumerable || false;descriptor.configurable = true;if ('value' in descriptor) descriptor.writable = true;Object.defineProperty(target, descriptor.key, descriptor);
+    }
+  }return function (Constructor, protoProps, staticProps) {
+    if (protoProps) defineProperties(Constructor.prototype, protoProps);if (staticProps) defineProperties(Constructor, staticProps);return Constructor;
+  };
+})();
 
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError('Cannot call a class as a function'); } }
+function _classCallCheck(instance, Constructor) {
+  if (!(instance instanceof Constructor)) {
+    throw new TypeError('Cannot call a class as a function');
+  }
+}
 
 var util = require('../util');
 
@@ -3220,8 +3289,11 @@ var Validator = (function () {
         Validator.getSuggestion(option, referenceOptions, path);
       } else if (referenceOptions[option] === undefined && referenceOptions.__any__ !== undefined) {
         // __any__ is a wildcard. Any value is accepted and will be further analysed by reference.
-        if (Validator.getType(options[option]) === 'object') {
+        if (Validator.getType(options[option]) === 'object' && referenceOptions['__any__'].__type__ !== undefined) {
+          // if the any subgroup is not a predefined object int he configurator we do not look deeper into the object.
           Validator.checkFields(option, options, referenceOptions, '__any__', referenceOptions['__any__'].__type__, path);
+        } else {
+          Validator.checkFields(option, options, referenceOptions, '__any__', referenceOptions['__any__'], path);
         }
       } else {
         // Since all options in the reference are objects, we can check whether they are supposed to be object to look for the __type__ field.
@@ -3254,20 +3326,18 @@ var Validator = (function () {
           if (refOptionType.indexOf(options[option]) === -1) {
             console.log('%cInvalid option detected in "' + option + '".' + ' Allowed values are:' + Validator.print(refOptionType) + ' not "' + options[option] + '". ' + Validator.printLocation(path, option), printStyle);
             errorFound = true;
-          } else if (optionType === 'object') {
+          } else if (optionType === 'object' && referenceOption !== '__any__') {
             path = util.copyAndExtendArray(path, option);
             Validator.parse(options[option], referenceOptions[referenceOption], path);
           }
-        } else if (optionType === 'object') {
+        } else if (optionType === 'object' && referenceOption !== '__any__') {
           path = util.copyAndExtendArray(path, option);
           Validator.parse(options[option], referenceOptions[referenceOption], path);
         }
-      } else {
-        if (refOptionObj['undef'] !== undefined && optionType === 'undefined') {} else if (refOptionObj['fn'] !== undefined && optionType === 'function') {} else {
-          // type of the field is incorrect
-          console.log('%cInvalid type received for "' + option + '". Expected: ' + Validator.print(Object.keys(refOptionObj)) + '. Received [' + optionType + '] "' + options[option] + '"' + Validator.printLocation(path, option), printStyle);
-          errorFound = true;
-        }
+      } else if (refOptionObj['any'] === undefined) {
+        // type of the field is incorrect and the field cannot be any
+        console.log('%cInvalid type received for "' + option + '". Expected: ' + Validator.print(Object.keys(refOptionObj)) + '. Received [' + optionType + '] "' + options[option] + '"' + Validator.printLocation(path, option), printStyle);
+        errorFound = true;
       }
     }
   }, {
@@ -3345,9 +3415,9 @@ var Validator = (function () {
      * @returns {{closestMatch: string, path: Array, distance: number}}
      */
     value: function findInOptions(option, options, path) {
-      var recursive = arguments[3] === undefined ? false : arguments[3];
+      var recursive = arguments.length <= 3 || arguments[3] === undefined ? false : arguments[3];
 
-      var min = 1000000000;
+      var min = 1e9;
       var closestMatch = '';
       var closestMatchPath = [];
       var lowerCaseOption = option.toLowerCase();
@@ -3379,7 +3449,7 @@ var Validator = (function () {
   }, {
     key: 'printLocation',
     value: function printLocation(path, option) {
-      var prefix = arguments[2] === undefined ? 'Problem value found at: \n' : arguments[2];
+      var prefix = arguments.length <= 2 || arguments[2] === undefined ? 'Problem value found at: \n' : arguments[2];
 
       var str = '\n\n' + prefix + 'options = {\n';
       for (var i = 0; i < path.length; i++) {
@@ -3457,11 +3527,7 @@ var Validator = (function () {
 exports['default'] = Validator;
 exports.printStyle = printStyle;
 
-// item is undefined, which is allowed
-
-// item is a function, which is allowed
-
-},{"../util":32}],12:[function(require,module,exports){
+},{"../util":33}],13:[function(require,module,exports){
 'use strict';
 
 var Emitter = require('emitter-component');
@@ -3495,6 +3561,8 @@ Emitter(Core.prototype);
  */
 Core.prototype._create = function (container) {
   this.dom = {};
+
+  this.dom.container = container;
 
   this.dom.root = document.createElement('div');
   this.dom.background = document.createElement('div');
@@ -3578,6 +3646,7 @@ Core.prototype._create = function (container) {
   // emitted via emitter
   this.hammer = new Hammer(this.dom.root);
   this.hammer.get('pinch').set({ enable: true });
+  this.hammer.get('pan').set({ threshold: 5, direction: 30 }); // 30 is ALL_DIRECTIONS in hammer.
   this.listeners = {};
 
   var events = ['tap', 'doubletap', 'press', 'pinch', 'pan', 'panstart', 'panmove', 'panend'
@@ -3712,6 +3781,13 @@ Core.prototype.setOptions = function (options) {
       }
     }
 
+    // if the graph2d's drawPoints is a function delegate the callback to the onRender property
+    if (typeof options.drawPoints == 'function') {
+      options.drawPoints = {
+        onRender: options.drawPoints
+      };
+    }
+
     if ('hiddenDates' in this.options) {
       DateUtil.convertHiddenOptions(this.body, this.options.hiddenDates);
     }
@@ -3743,7 +3819,11 @@ Core.prototype.setOptions = function (options) {
   });
 
   // enable/disable configure
-  if (this.configurator) {
+  if ('configure' in options) {
+    if (!this.configurator) {
+      this.configurator = this._createConfigurator();
+    }
+
     this.configurator.setOptions(options.configure);
 
     // collect the settings of all components, and pass them to the configuration system
@@ -3916,43 +3996,30 @@ Core.prototype.getVisibleItems = function () {
  *                                    function is 'easeInOutQuad'.
  */
 Core.prototype.fit = function (options) {
-  var range = this._getDataRange();
+  var range = this.getDataRange();
 
-  // skip range set if there is no start and end date
-  if (range.start === null && range.end === null) {
+  // skip range set if there is no min and max date
+  if (range.min === null && range.max === null) {
     return;
   }
 
+  // apply a margin of 1% left and right of the data
+  var interval = range.max - range.min;
+  var min = new Date(range.min.valueOf() - interval * 0.01);
+  var max = new Date(range.max.valueOf() + interval * 0.01);
+
   var animation = options && options.animation !== undefined ? options.animation : true;
-  this.range.setRange(range.start, range.end, animation);
+  this.range.setRange(min, max, animation);
 };
 
 /**
- * Calculate the data range of the items and applies a 5% window around it.
- * @returns {{start: Date | null, end: Date | null}}
+ * Calculate the data range of the items start and end dates
+ * @returns {{min: Date | null, max: Date | null}}
  * @protected
  */
-Core.prototype._getDataRange = function () {
-  // apply the data range as range
-  var dataRange = this.getItemRange();
-
-  // add 5% space on both sides
-  var start = dataRange.min;
-  var end = dataRange.max;
-  if (start != null && end != null) {
-    var interval = end.valueOf() - start.valueOf();
-    if (interval <= 0) {
-      // prevent an empty interval
-      interval = 24 * 60 * 60 * 1000; // 1 day
-    }
-    start = new Date(start.valueOf() - interval * 0.05);
-    end = new Date(end.valueOf() + interval * 0.05);
-  }
-
-  return {
-    start: start,
-    end: end
-  };
+Core.prototype.getDataRange = function () {
+  // must be implemented by Timeline and Graph2d
+  throw new Error('Cannot invoke abstract method getDataRange');
 };
 
 /**
@@ -4422,9 +4489,18 @@ Core.prototype._getScrollTop = function () {
   return this.props.scrollTop;
 };
 
+/**
+ * Load a configurator
+ * @return {Object}
+ * @private
+ */
+Core.prototype._createConfigurator = function () {
+  throw new Error('Cannot invoke abstract method _createConfigurator');
+};
+
 module.exports = Core;
 
-},{"../DataSet":1,"../DataView":2,"../hammerUtil":4,"../module/hammer":5,"../shared/Activator":8,"../util":32,"./DateUtil":13,"./Range":14,"./component/CustomTime":21,"./component/ItemSet":23,"./component/TimeAxis":24,"emitter-component":33}],13:[function(require,module,exports){
+},{"../DataSet":2,"../DataView":3,"../hammerUtil":5,"../module/hammer":6,"../shared/Activator":9,"../util":33,"./DateUtil":14,"./Range":15,"./component/CustomTime":22,"./component/ItemSet":24,"./component/TimeAxis":25,"emitter-component":34}],14:[function(require,module,exports){
 "use strict";
 
 var moment = require("../module/moment");
@@ -4881,7 +4957,7 @@ exports.isHidden = function (time, hiddenDates) {
   return { hidden: false, startDate: startDate, endDate: endDate };
 };
 
-},{"../module/moment":6}],14:[function(require,module,exports){
+},{"../module/moment":7}],15:[function(require,module,exports){
 'use strict';
 
 var util = require('../util');
@@ -5554,7 +5630,7 @@ Range.prototype.moveTo = function (moveTo) {
 
 module.exports = Range;
 
-},{"../hammerUtil":4,"../module/moment":6,"../util":32,"./DateUtil":13,"./component/Component":19}],15:[function(require,module,exports){
+},{"../hammerUtil":5,"../module/moment":7,"../util":33,"./DateUtil":14,"./component/Component":20}],16:[function(require,module,exports){
 // Utility functions for ordering and stacking of items
 'use strict';
 
@@ -5675,7 +5751,7 @@ exports.collision = function (a, b, margin) {
   return a.left - margin.horizontal + EPSILON < b.left + b.width && a.left + a.width + margin.horizontal - EPSILON > b.left && a.top - margin.vertical + EPSILON < b.top + b.height && a.top + a.height + margin.vertical - EPSILON > b.top;
 };
 
-},{}],16:[function(require,module,exports){
+},{}],17:[function(require,module,exports){
 'use strict';
 
 var moment = require('../module/moment');
@@ -6362,7 +6438,7 @@ TimeStep.prototype.getClassName = function () {
 
 module.exports = TimeStep;
 
-},{"../module/moment":6,"../util":32,"./DateUtil":13}],17:[function(require,module,exports){
+},{"../module/moment":7,"../util":33,"./DateUtil":14}],18:[function(require,module,exports){
 'use strict';
 
 var Emitter = require('emitter-component');
@@ -6484,9 +6560,6 @@ function Timeline(container, items, groups, options) {
     me.emit('contextmenu', me.getEventProperties(event));
   };
 
-  // setup configuration system
-  this.configurator = new Configurator(this, container, configureOptions);
-
   // apply options
   if (options) {
     this.setOptions(options);
@@ -6507,6 +6580,15 @@ function Timeline(container, items, groups, options) {
 
 // Extend the functionality from Core
 Timeline.prototype = new Core();
+
+/**
+ * Load a configurator
+ * @return {Object}
+ * @private
+ */
+Timeline.prototype._createConfigurator = function () {
+  return new Configurator(this, this.dom.container, configureOptions);
+};
 
 /**
  * Force a redraw. The size of all items will be recalculated.
@@ -6573,11 +6655,11 @@ Timeline.prototype.setItems = function (items) {
   if (initialLoad) {
     if (this.options.start != undefined || this.options.end != undefined) {
       if (this.options.start == undefined || this.options.end == undefined) {
-        var dataRange = this._getDataRange();
+        var range = this.getItemRange();
       }
 
-      var start = this.options.start != undefined ? this.options.start : dataRange.start;
-      var end = this.options.end != undefined ? this.options.end : dataRange.end;
+      var start = this.options.start != undefined ? this.options.start : range.min;
+      var end = this.options.end != undefined ? this.options.end : range.max;
 
       this.setWindow(start, end, { animation: false });
     } else {
@@ -6705,37 +6787,120 @@ Timeline.prototype.focus = function (id, options) {
 };
 
 /**
- * Get the data range of the item set.
- * @returns {{min: Date, max: Date}} range  A range with a start and end Date.
- *                                          When no minimum is found, min==null
- *                                          When no maximum is found, max==null
+ * Set Timeline window such that it fits all items
+ * @param {Object} [options]  Available options:
+ *                                `animation: boolean | {duration: number, easingFunction: string}`
+ *                                    If true (default), the range is animated
+ *                                    smoothly to the new window. An object can be
+ *                                    provided to specify duration and easing function.
+ *                                    Default duration is 500 ms, and default easing
+ *                                    function is 'easeInOutQuad'.
+ */
+Timeline.prototype.fit = function (options) {
+  var animation = options && options.animation !== undefined ? options.animation : true;
+  var range = this.getItemRange();
+  this.range.setRange(range.min, range.max, animation);
+};
+
+/**
+ * Determine the range of the items, taking into account their actual width
+ * and a margin of 10 pixels on both sides.
+ * @return {{min: Date | null, max: Date | null}}
  */
 Timeline.prototype.getItemRange = function () {
-  // calculate min from start filed
-  var dataset = this.itemsData && this.itemsData.getDataSet();
+  var _this = this;
+
+  // get a rough approximation for the range based on the items start and end dates
+  var range = this.getDataRange();
+  var min = range.min;
+  var max = range.max;
+  var minItem = null;
+  var maxItem = null;
+
+  if (min != null && max != null) {
+    var interval;
+    var factor;
+    var lhs;
+    var rhs;
+    var delta;
+
+    (function () {
+      var getStart = function getStart(item) {
+        return util.convert(item.data.start, 'Date').valueOf();
+      };
+
+      var getEnd = function getEnd(item) {
+        var end = item.data.end != undefined ? item.data.end : item.data.start;
+        return util.convert(end, 'Date').valueOf();
+      };
+
+      interval = max - min;
+      // ms
+      if (interval <= 0) {
+        interval = 10;
+      }
+      factor = interval / _this.props.center.width;
+
+      // calculate the date of the left side and right side of the items given
+      util.forEach(_this.itemSet.items, (function (item) {
+        item.show();
+
+        var start = getStart(item);
+        var end = getEnd(item);
+
+        var left = new Date(start - (item.getWidthLeft() + 10) * factor);
+        var right = new Date(end + (item.getWidthRight() + 10) * factor);
+
+        if (left < min) {
+          min = left;
+          minItem = item;
+        }
+        if (right > max) {
+          max = right;
+          maxItem = item;
+        }
+      }).bind(_this));
+
+      if (minItem && maxItem) {
+        lhs = minItem.getWidthLeft() + 10;
+        rhs = maxItem.getWidthRight() + 10;
+        delta = _this.props.center.width - lhs - rhs;
+        // px
+
+        if (delta > 0) {
+          min = getStart(minItem) - lhs * interval / delta; // ms
+          max = getEnd(maxItem) + rhs * interval / delta; // ms
+        }
+      }
+    })();
+  }
+
+  return {
+    min: min != null ? new Date(min) : null,
+    max: max != null ? new Date(max) : null
+  };
+};
+
+/**
+ * Calculate the data range of the items start and end dates
+ * @returns {{min: Date | null, max: Date | null}}
+ */
+Timeline.prototype.getDataRange = function () {
   var min = null;
   var max = null;
 
+  var dataset = this.itemsData && this.itemsData.getDataSet();
   if (dataset) {
-    // calculate the minimum value of the field 'start'
-    var minItem = dataset.min('start');
-    min = minItem ? util.convert(minItem.start, 'Date').valueOf() : null;
-    // Note: we convert first to Date and then to number because else
-    // a conversion from ISODate to Number will fail
-
-    // calculate maximum value of fields 'start' and 'end'
-    var maxStartItem = dataset.max('start');
-    if (maxStartItem) {
-      max = util.convert(maxStartItem.start, 'Date').valueOf();
-    }
-    var maxEndItem = dataset.max('end');
-    if (maxEndItem) {
-      if (max == null) {
-        max = util.convert(maxEndItem.end, 'Date').valueOf();
-      } else {
-        max = Math.max(max, util.convert(maxEndItem.end, 'Date').valueOf());
+    dataset.forEach(function (item) {
+      var start = util.convert(item.start, 'Date').valueOf();
+      var end = util.convert(item.end != undefined ? item.end : item.start, 'Date').valueOf();
+      if (min === null || start < min) {
+        min = start;
       }
-    }
+      if (max === null || end > max) {
+        max = start;
+      }
+    });
   }
 
   return {
@@ -6800,7 +6965,7 @@ Timeline.prototype.getEventProperties = function (event) {
 
 module.exports = Timeline;
 
-},{"../DataSet":1,"../DataView":2,"../module/hammer":5,"../shared/Configurator":10,"../shared/Validator":11,"../util":32,"./Core":12,"./Range":14,"./component/CurrentTime":20,"./component/CustomTime":21,"./component/ItemSet":23,"./component/TimeAxis":24,"./optionsTimeline":31,"emitter-component":33}],18:[function(require,module,exports){
+},{"../DataSet":2,"../DataView":3,"../module/hammer":6,"../shared/Configurator":11,"../shared/Validator":12,"../util":33,"./Core":13,"./Range":15,"./component/CurrentTime":21,"./component/CustomTime":22,"./component/ItemSet":24,"./component/TimeAxis":25,"./optionsTimeline":32,"emitter-component":34}],19:[function(require,module,exports){
 'use strict';
 
 var util = require('../../util');
@@ -6861,7 +7026,7 @@ BackgroundGroup.prototype.show = function () {
 
 module.exports = BackgroundGroup;
 
-},{"../../util":32,"./Group":22}],19:[function(require,module,exports){
+},{"../../util":33,"./Group":23}],20:[function(require,module,exports){
 /**
  * Prototype for visual components
  * @param {{dom: Object, domProps: Object, emitter: Emitter, range: Range}} [body]
@@ -6918,7 +7083,7 @@ module.exports = Component;
 
 // should be implemented by the component
 
-},{}],20:[function(require,module,exports){
+},{}],21:[function(require,module,exports){
 'use strict';
 
 var util = require('../../util');
@@ -7091,7 +7256,7 @@ CurrentTime.prototype.getCurrentTime = function () {
 
 module.exports = CurrentTime;
 
-},{"../../module/moment":6,"../../util":32,"../locales":30,"./Component":19}],21:[function(require,module,exports){
+},{"../../module/moment":7,"../../util":33,"../locales":31,"./Component":20}],22:[function(require,module,exports){
 'use strict';
 
 var Hammer = require('../../module/hammer');
@@ -7178,6 +7343,7 @@ CustomTime.prototype._create = function () {
   this.hammer.on('panstart', this._onDragStart.bind(this));
   this.hammer.on('panmove', this._onDrag.bind(this));
   this.hammer.on('panend', this._onDragEnd.bind(this));
+  this.hammer.get('pan').set({ threshold: 5, direction: 30 }); // 30 is ALL_DIRECTIONS in hammer.
   // TODO: cleanup
   //this.hammer.on('pan',   function (event) {
   //  event.preventDefault();
@@ -7327,7 +7493,7 @@ CustomTime.customTimeFromTarget = function (event) {
 
 module.exports = CustomTime;
 
-},{"../../module/hammer":5,"../../module/moment":6,"../../util":32,"../locales":30,"./Component":19}],22:[function(require,module,exports){
+},{"../../module/hammer":6,"../../module/moment":7,"../../util":33,"../locales":31,"./Component":20}],23:[function(require,module,exports){
 'use strict';
 
 var util = require('../../util');
@@ -7714,7 +7880,13 @@ Group.prototype.remove = function (item) {
   var index = this.visibleItems.indexOf(item);
   if (index != -1) this.visibleItems.splice(index, 1);
 
-  // TODO: also remove from ordered items?
+  if (item.data.subgroup !== undefined) {
+    var subgroup = this.subgroups[item.data.subgroup];
+    if (subgroup) {
+      var itemIndex = subgroup.items.indexOf(item);
+      subgroup.items.splice(itemIndex, 1);
+    }
+  }
 };
 
 /**
@@ -7910,7 +8082,7 @@ Group.prototype._checkIfVisibleWithReference = function (item, visibleItems, vis
 
 module.exports = Group;
 
-},{"../../util":32,"../Stack":15,"./item/RangeItem":29}],23:[function(require,module,exports){
+},{"../../util":33,"../Stack":16,"./item/RangeItem":30}],24:[function(require,module,exports){
 'use strict';
 
 var Hammer = require('../../module/hammer');
@@ -8112,6 +8284,7 @@ ItemSet.prototype._create = function () {
   this.hammer.on('panstart', this._onDragStart.bind(this));
   this.hammer.on('panmove', this._onDrag.bind(this));
   this.hammer.on('panend', this._onDragEnd.bind(this));
+  this.hammer.get('pan').set({ threshold: 5, direction: 30 }); // 30 is ALL_DIRECTIONS in hammer.
 
   // single select (or unselect) when tapping an item
   this.hammer.on('tap', this._onSelectItem.bind(this));
@@ -8419,15 +8592,14 @@ ItemSet.prototype.redraw = function () {
       options = this.options,
       orientation = options.orientation.item,
       resized = false,
-      frame = this.dom.frame,
-      editable = options.editable.updateTime || options.editable.updateGroup;
+      frame = this.dom.frame;
 
   // recalculate absolute position (before redrawing groups)
   this.props.top = this.body.domProps.top.height + this.body.domProps.border.top;
   this.props.left = this.body.domProps.left.width + this.body.domProps.border.left;
 
   // update class name
-  frame.className = 'vis-itemset' + (editable ? ' vis-editable' : '');
+  frame.className = 'vis-itemset';
 
   // reorder the groups (if needed)
   resized = this._orderGroups() || resized;
@@ -9012,15 +9184,21 @@ ItemSet.prototype._onTouch = function (event) {
  * @private
  */
 ItemSet.prototype._onDragStart = function (event) {
-  if (!this.options.editable.updateTime && !this.options.editable.updateGroup) {
-    return;
-  }
-
   var item = this.touchParams.item || null;
   var me = this;
   var props;
 
   if (item && item.selected) {
+
+    if (!this.options.editable.updateTime && !this.options.editable.updateGroup && !item.editable) {
+      return;
+    }
+
+    // override options.editable
+    if (item.editable === false) {
+      return;
+    }
+
     var dragLeftItem = this.touchParams.dragLeftItem;
     var dragRightItem = this.touchParams.dragRightItem;
 
@@ -9132,7 +9310,13 @@ ItemSet.prototype._onDrag = function (event) {
 
       var itemData = util.extend({}, props.item.data); // clone the data
 
-      if (me.options.editable.updateTime) {
+      if (props.item.editable === false) {
+        return;
+      }
+
+      var updateTimeAllowed = me.options.editable.updateTime || props.item.editable === true;
+
+      if (updateTimeAllowed) {
         if (props.dragLeft) {
           // drag left side of a range item
           if (itemData.start != undefined) {
@@ -9166,7 +9350,9 @@ ItemSet.prototype._onDrag = function (event) {
         }
       }
 
-      if (me.options.editable.updateGroup && (!props.dragLeft && !props.dragRight)) {
+      var updateGroupAllowed = me.options.editable.updateGroup || props.item.editable === true;
+
+      if (updateGroupAllowed && (!props.dragLeft && !props.dragRight)) {
         if (itemData.group != undefined) {
           // drag from one group to another
           var group = me.groupFromTarget(event);
@@ -9293,7 +9479,8 @@ ItemSet.prototype._onSelectItem = function (event) {
   // except when old selection is empty and new selection is still empty
   if (newSelection.length > 0 || oldSelection.length > 0) {
     this.body.emitter.emit('select', {
-      items: newSelection
+      items: newSelection,
+      event: event
     });
   }
 };
@@ -9412,7 +9599,8 @@ ItemSet.prototype._onMultiSelectItem = function (event) {
     this.setSelection(selection);
 
     this.body.emitter.emit('select', {
-      items: this.getSelection()
+      items: this.getSelection(),
+      event: event
     });
   }
 };
@@ -9518,7 +9706,7 @@ ItemSet.itemSetFromTarget = function (event) {
 
 module.exports = ItemSet;
 
-},{"../../DataSet":1,"../../DataView":2,"../../module/hammer":5,"../../util":32,"../TimeStep":16,"./BackgroundGroup":18,"./Component":19,"./Group":22,"./item/BackgroundItem":25,"./item/BoxItem":26,"./item/PointItem":28,"./item/RangeItem":29}],24:[function(require,module,exports){
+},{"../../DataSet":2,"../../DataView":3,"../../module/hammer":6,"../../util":33,"../TimeStep":17,"./BackgroundGroup":19,"./Component":20,"./Group":23,"./item/BackgroundItem":26,"./item/BoxItem":27,"./item/PointItem":29,"./item/RangeItem":30}],25:[function(require,module,exports){
 'use strict';
 
 var util = require('../../util');
@@ -9645,21 +9833,20 @@ TimeAxis.prototype.destroy = function () {
  * @return {boolean} Returns true if the component is resized
  */
 TimeAxis.prototype.redraw = function () {
-  var options = this.options;
   var props = this.props;
   var foreground = this.dom.foreground;
   var background = this.dom.background;
 
   // determine the correct parent DOM element (depending on option orientation)
-  var parent = options.orientation.axis == 'top' ? this.body.dom.top : this.body.dom.bottom;
+  var parent = this.options.orientation.axis == 'top' ? this.body.dom.top : this.body.dom.bottom;
   var parentChanged = foreground.parentNode !== parent;
 
   // calculate character width and height
   this._calculateCharSize();
 
   // TODO: recalculate sizes only needed when parent is resized or options is changed
-  var showMinorLabels = this.options.showMinorLabels;
-  var showMajorLabels = this.options.showMajorLabels;
+  var showMinorLabels = this.options.showMinorLabels && this.options.orientation.axis !== 'none';
+  var showMajorLabels = this.options.showMajorLabels && this.options.orientation.axis !== 'none';
 
   // determine the width and height of the elemens for the axis
   props.minorLabelHeight = showMinorLabels ? props.minorCharHeight : 0;
@@ -9667,7 +9854,7 @@ TimeAxis.prototype.redraw = function () {
   props.height = props.minorLabelHeight + props.majorLabelHeight;
   props.width = foreground.offsetWidth;
 
-  props.minorLineHeight = this.body.domProps.root.height - props.majorLabelHeight - (options.orientation.axis == 'top' ? this.body.domProps.bottom.height : this.body.domProps.top.height);
+  props.minorLineHeight = this.body.domProps.root.height - props.majorLabelHeight - (this.options.orientation.axis == 'top' ? this.body.domProps.bottom.height : this.body.domProps.top.height);
   props.minorLineWidth = 1; // TODO: really calculate width
   props.majorLineHeight = props.minorLineHeight + props.majorLabelHeight;
   props.majorLineWidth = 1; // TODO: really calculate width
@@ -9955,7 +10142,7 @@ TimeAxis.prototype._calculateCharSize = function () {
 
 module.exports = TimeAxis;
 
-},{"../../module/moment":6,"../../util":32,"../DateUtil":13,"../TimeStep":16,"./Component":19}],25:[function(require,module,exports){
+},{"../../module/moment":7,"../../util":33,"../DateUtil":14,"../TimeStep":17,"./Component":20}],26:[function(require,module,exports){
 'use strict';
 
 var Hammer = require('../../../module/hammer');
@@ -10173,7 +10360,7 @@ BackgroundItem.prototype.repositionY = function (margin) {
 
 module.exports = BackgroundItem;
 
-},{"../../../module/hammer":5,"../BackgroundGroup":18,"./Item":27,"./RangeItem":29}],26:[function(require,module,exports){
+},{"../../../module/hammer":6,"../BackgroundGroup":19,"./Item":28,"./RangeItem":30}],27:[function(require,module,exports){
 'use strict';
 
 var Item = require('./Item');
@@ -10288,8 +10475,10 @@ BoxItem.prototype.redraw = function () {
     this._updateDataAttributes(this.dom.box);
     this._updateStyle(this.dom.box);
 
+    var editable = (this.options.editable.updateTime || this.options.editable.updateGroup || this.editable === true) && this.editable !== false;
+
     // update class
-    var className = (this.data.className ? ' ' + this.data.className : '') + (this.selected ? ' vis-selected' : '');
+    var className = (this.data.className ? ' ' + this.data.className : '') + (this.selected ? ' vis-selected' : '') + (editable ? ' vis-editable' : ' vis-readonly');
     dom.box.className = 'vis-item vis-box' + className;
     dom.line.className = 'vis-item vis-line' + className;
     dom.dot.className = 'vis-item vis-dot' + className;
@@ -10390,9 +10579,25 @@ BoxItem.prototype.repositionY = function () {
   dot.style.top = -this.props.dot.height / 2 + 'px';
 };
 
+/**
+ * Return the width of the item left from its start date
+ * @return {number}
+ */
+BoxItem.prototype.getWidthLeft = function () {
+  return this.width / 2;
+};
+
+/**
+ * Return the width of the item right from its start date
+ * @return {number}
+ */
+BoxItem.prototype.getWidthRight = function () {
+  return this.width / 2;
+};
+
 module.exports = BoxItem;
 
-},{"../../../util":32,"./Item":27}],27:[function(require,module,exports){
+},{"../../../util":33,"./Item":28}],28:[function(require,module,exports){
 'use strict';
 
 var Hammer = require('../../../module/hammer');
@@ -10423,6 +10628,11 @@ function Item(data, conversion, options) {
   this.left = null;
   this.width = null;
   this.height = null;
+
+  this.editable = null;
+  if (this.data && this.data.hasOwnProperty('editable') && typeof this.data.editable === 'boolean') {
+    this.editable = data.editable;
+  }
 }
 
 Item.prototype.stack = true;
@@ -10454,6 +10664,10 @@ Item.prototype.setData = function (data) {
   var groupChanged = data.group != undefined && this.data.group != data.group;
   if (groupChanged) {
     this.parent.itemSet._moveToGroup(this, data.group);
+  }
+
+  if (data.hasOwnProperty('editable') && typeof data.editable === 'boolean') {
+    this.editable = data.editable;
   }
 
   this.data = data;
@@ -10524,7 +10738,9 @@ Item.prototype.repositionY = function () {};
  * @protected
  */
 Item.prototype._repaintDeleteButton = function (anchor) {
-  if (this.selected && this.options.editable.remove && !this.dom.deleteButton) {
+  var editable = (this.options.editable.remove || this.data.editable === true) && this.data.editable !== false;
+
+  if (this.selected && editable && !this.dom.deleteButton) {
     // create and show button
     var me = this;
 
@@ -10655,6 +10871,22 @@ Item.prototype._contentToString = function (content) {
   return content;
 };
 
+/**
+ * Return the width of the item left from its start date
+ * @return {number}
+ */
+Item.prototype.getWidthLeft = function () {
+  return 0;
+};
+
+/**
+ * Return the width of the item right from the max of its start and end date
+ * @return {number}
+ */
+Item.prototype.getWidthRight = function () {
+  return 0;
+};
+
 module.exports = Item;
 
 // should be implemented by the item
@@ -10663,7 +10895,7 @@ module.exports = Item;
 
 // should be implemented by the item
 
-},{"../../../module/hammer":5,"../../../util":32}],28:[function(require,module,exports){
+},{"../../../module/hammer":6,"../../../util":33}],29:[function(require,module,exports){
 'use strict';
 
 var Item = require('./Item');
@@ -10767,14 +10999,14 @@ PointItem.prototype.redraw = function () {
     this._updateDataAttributes(this.dom.point);
     this._updateStyle(this.dom.point);
 
+    var editable = (this.options.editable.updateTime || this.options.editable.updateGroup || this.editable === true) && this.editable !== false;
+
     // update class
-    var className = (this.data.className ? ' ' + this.data.className : '') + (this.selected ? ' vis-selected' : '');
+    var className = (this.data.className ? ' ' + this.data.className : '') + (this.selected ? ' vis-selected' : '') + (editable ? ' vis-editable' : ' vis-readonly');
     dom.point.className = 'vis-item vis-point' + className;
     dom.dot.className = 'vis-item vis-dot' + className;
 
-    // recalculate size
-    this.width = dom.point.offsetWidth;
-    this.height = dom.point.offsetHeight;
+    // recalculate size of dot and contents
     this.props.dot.width = dom.dot.offsetWidth;
     this.props.dot.height = dom.dot.offsetHeight;
     this.props.content.height = dom.content.offsetHeight;
@@ -10785,6 +11017,10 @@ PointItem.prototype.redraw = function () {
 
     dom.dot.style.top = (this.height - this.props.dot.height) / 2 + 'px';
     dom.dot.style.left = this.props.dot.width / 2 + 'px';
+
+    // recalculate size
+    this.width = dom.point.offsetWidth;
+    this.height = dom.point.offsetHeight;
 
     this.dirty = false;
   }
@@ -10843,9 +11079,25 @@ PointItem.prototype.repositionY = function () {
   }
 };
 
+/**
+ * Return the width of the item left from its start date
+ * @return {number}
+ */
+PointItem.prototype.getWidthLeft = function () {
+  return this.props.dot.width;
+};
+
+/**
+ * Return the width of the item right from  its start date
+ * @return {number}
+ */
+PointItem.prototype.getWidthRight = function () {
+  return this.width - this.props.dot.width;
+};
+
 module.exports = PointItem;
 
-},{"./Item":27}],29:[function(require,module,exports){
+},{"./Item":28}],30:[function(require,module,exports){
 'use strict';
 
 var Hammer = require('../../../module/hammer');
@@ -10949,8 +11201,10 @@ RangeItem.prototype.redraw = function () {
     this._updateDataAttributes(this.dom.box);
     this._updateStyle(this.dom.box);
 
+    var editable = (this.options.editable.updateTime || this.options.editable.updateGroup || this.editable === true) && this.editable !== false;
+
     // update class
-    var className = (this.data.className ? ' ' + this.data.className : '') + (this.selected ? ' vis-selected' : '');
+    var className = (this.data.className ? ' ' + this.data.className : '') + (this.selected ? ' vis-selected' : '') + (editable ? ' vis-editable' : ' vis-readonly');
     dom.box.className = this.baseClassName + className;
 
     // determine from css whether this box has overflow
@@ -11136,7 +11390,7 @@ RangeItem.prototype._repaintDragRight = function () {
 
 module.exports = RangeItem;
 
-},{"../../../module/hammer":5,"./Item":27}],30:[function(require,module,exports){
+},{"../../../module/hammer":6,"./Item":28}],31:[function(require,module,exports){
 // English
 'use strict';
 
@@ -11155,7 +11409,7 @@ exports['nl'] = {
 exports['nl_NL'] = exports['nl'];
 exports['nl_BE'] = exports['nl'];
 
-},{}],31:[function(require,module,exports){
+},{}],32:[function(require,module,exports){
 /**
  * This object contains all possible options. It will check if the types are correct, if required if the option is one
  * of the allowed values.
@@ -11176,17 +11430,14 @@ var date = 'date';
 var object = 'object'; // should only be in a __type__ property
 var dom = 'dom';
 var moment = 'moment';
-var fn = 'function';
-var nada = 'null';
-var undef = 'undefined';
 var any = 'any';
 
 var allOptions = {
   configure: {
     enabled: { boolean: boolean },
-    filter: { boolean: boolean, fn: fn },
+    filter: { boolean: boolean, 'function': 'function' },
     container: { dom: dom },
-    __type__: { object: object, boolean: boolean, fn: fn }
+    __type__: { object: object, boolean: boolean, 'function': 'function' }
   },
 
   //globals :
@@ -11195,51 +11446,51 @@ var allOptions = {
   clickToUse: { boolean: boolean },
   dataAttributes: { string: string, array: array },
   editable: {
-    add: { boolean: boolean, undef: undef },
-    remove: { boolean: boolean, undef: undef },
-    updateGroup: { boolean: boolean, undef: undef },
-    updateTime: { boolean: boolean, undef: undef },
+    add: { boolean: boolean, 'undefined': 'undefined' },
+    remove: { boolean: boolean, 'undefined': 'undefined' },
+    updateGroup: { boolean: boolean, 'undefined': 'undefined' },
+    updateTime: { boolean: boolean, 'undefined': 'undefined' },
     __type__: { boolean: boolean, object: object }
   },
   end: { number: number, date: date, string: string, moment: moment },
   format: {
     minorLabels: {
-      millisecond: { string: string, undef: undef },
-      second: { string: string, undef: undef },
-      minute: { string: string, undef: undef },
-      hour: { string: string, undef: undef },
-      weekday: { string: string, undef: undef },
-      day: { string: string, undef: undef },
-      month: { string: string, undef: undef },
-      year: { string: string, undef: undef },
+      millisecond: { string: string, 'undefined': 'undefined' },
+      second: { string: string, 'undefined': 'undefined' },
+      minute: { string: string, 'undefined': 'undefined' },
+      hour: { string: string, 'undefined': 'undefined' },
+      weekday: { string: string, 'undefined': 'undefined' },
+      day: { string: string, 'undefined': 'undefined' },
+      month: { string: string, 'undefined': 'undefined' },
+      year: { string: string, 'undefined': 'undefined' },
       __type__: { object: object }
     },
     majorLabels: {
-      millisecond: { string: string, undef: undef },
-      second: { string: string, undef: undef },
-      minute: { string: string, undef: undef },
-      hour: { string: string, undef: undef },
-      weekday: { string: string, undef: undef },
-      day: { string: string, undef: undef },
-      month: { string: string, undef: undef },
-      year: { string: string, undef: undef },
+      millisecond: { string: string, 'undefined': 'undefined' },
+      second: { string: string, 'undefined': 'undefined' },
+      minute: { string: string, 'undefined': 'undefined' },
+      hour: { string: string, 'undefined': 'undefined' },
+      weekday: { string: string, 'undefined': 'undefined' },
+      day: { string: string, 'undefined': 'undefined' },
+      month: { string: string, 'undefined': 'undefined' },
+      year: { string: string, 'undefined': 'undefined' },
       __type__: { object: object }
     },
     __type__: { object: object }
   },
-  groupOrder: { string: string, fn: fn },
+  groupOrder: { string: string, 'function': 'function' },
   height: { string: string, number: number },
   hiddenDates: { object: object, array: array },
   locale: { string: string },
   locales: {
-    __any__: { object: object },
+    __any__: { any: any },
     __type__: { object: object }
   },
   margin: {
     axis: { number: number },
     item: {
-      horizontal: { number: number, undef: undef },
-      vertical: { number: number, undef: undef },
+      horizontal: { number: number, 'undefined': 'undefined' },
+      vertical: { number: number, 'undefined': 'undefined' },
       __type__: { object: object, number: number }
     },
     __type__: { object: object, number: number }
@@ -11250,15 +11501,15 @@ var allOptions = {
   minHeight: { number: number, string: string },
   moveable: { boolean: boolean },
   multiselect: { boolean: boolean },
-  onAdd: { fn: fn },
-  onUpdate: { fn: fn },
-  onMove: { fn: fn },
-  onMoving: { fn: fn },
-  onRemove: { fn: fn },
-  order: { fn: fn },
+  onAdd: { 'function': 'function' },
+  onUpdate: { 'function': 'function' },
+  onMove: { 'function': 'function' },
+  onMoving: { 'function': 'function' },
+  onRemove: { 'function': 'function' },
+  order: { 'function': 'function' },
   orientation: {
-    axis: { string: string, undef: undef },
-    item: { string: string, undef: undef },
+    axis: { string: string, 'undefined': 'undefined' },
+    item: { string: string, 'undefined': 'undefined' },
     __type__: { string: string, object: object }
   },
   selectable: { boolean: boolean },
@@ -11266,12 +11517,12 @@ var allOptions = {
   showMajorLabels: { boolean: boolean },
   showMinorLabels: { boolean: boolean },
   stack: { boolean: boolean },
-  snap: { fn: fn, nada: nada },
+  snap: { 'function': 'function', 'null': 'null' },
   start: { date: date, number: number, string: string, moment: moment },
-  template: { fn: fn },
+  template: { 'function': 'function' },
   timeAxis: {
-    scale: { string: string, undef: undef },
-    step: { number: number, undef: undef },
+    scale: { string: string, 'undefined': 'undefined' },
+    step: { number: number, 'undefined': 'undefined' },
     __type__: { object: object }
   },
   type: { string: string },
@@ -11319,7 +11570,7 @@ var configureOptions = {
       }
     },
 
-    //groupOrder: {string, fn},
+    //groupOrder: {string, 'function': 'function'},
     height: '',
     //hiddenDates: {object, array},
     locale: '',
@@ -11336,12 +11587,12 @@ var configureOptions = {
     minHeight: '',
     moveable: false,
     multiselect: false,
-    //onAdd: {fn},
-    //onUpdate: {fn},
-    //onMove: {fn},
-    //onMoving: {fn},
-    //onRename: {fn},
-    //order: {fn},
+    //onAdd: {'function': 'function'},
+    //onUpdate: {'function': 'function'},
+    //onMove: {'function': 'function'},
+    //onMoving: {'function': 'function'},
+    //onRename: {'function': 'function'},
+    //order: {'function': 'function'},
     orientation: {
       axis: ['both', 'bottom', 'top'],
       item: ['bottom', 'top']
@@ -11351,9 +11602,9 @@ var configureOptions = {
     showMajorLabels: true,
     showMinorLabels: true,
     stack: true,
-    //snap: {fn, nada},
+    //snap: {'function': 'function', nada},
     start: '',
-    //template: {fn},
+    //template: {'function': 'function'},
     //timeAxis: {
     //  scale: ['millisecond', 'second', 'minute', 'hour', 'weekday', 'day', 'month', 'year'],
     //  step: [1, 1, 10, 1]
@@ -11369,7 +11620,7 @@ var configureOptions = {
 exports.allOptions = allOptions;
 exports.configureOptions = configureOptions;
 
-},{}],32:[function(require,module,exports){
+},{}],33:[function(require,module,exports){
 // utility functions
 
 // first check if moment.js is already loaded in the browser window, if so,
@@ -11481,7 +11732,7 @@ exports.assignAllKeys = function (obj, value) {
  * @param value
  */
 exports.fillIfDefined = function (a, b) {
-  var allowDeletion = arguments[2] === undefined ? false : arguments[2];
+  var allowDeletion = arguments.length <= 2 || arguments[2] === undefined ? false : arguments[2];
 
   for (var prop in a) {
     if (b[prop] !== undefined) {
@@ -11571,7 +11822,7 @@ exports.selectiveExtend = function (props, a, b) {
  * @return {Object} a
  */
 exports.selectiveDeepExtend = function (props, a, b) {
-  var allowDeletion = arguments[3] === undefined ? false : arguments[3];
+  var allowDeletion = arguments.length <= 3 || arguments[3] === undefined ? false : arguments[3];
 
   // TODO: add support for Arrays to deepExtend
   if (Array.isArray(b)) {
@@ -11615,7 +11866,7 @@ exports.selectiveDeepExtend = function (props, a, b) {
  * @return {Object} a
  */
 exports.selectiveNotDeepExtend = function (props, a, b) {
-  var allowDeletion = arguments[3] === undefined ? false : arguments[3];
+  var allowDeletion = arguments.length <= 3 || arguments[3] === undefined ? false : arguments[3];
 
   // TODO: add support for Arrays to deepExtend
   if (Array.isArray(b)) {
@@ -12536,7 +12787,7 @@ exports.bridgeObject = function (referenceObject) {
  * @private
  */
 exports.mergeOptions = function (mergeTarget, options, option) {
-  var allowDeletion = arguments[3] === undefined ? false : arguments[3];
+  var allowDeletion = arguments.length <= 3 || arguments[3] === undefined ? false : arguments[3];
 
   if (options[option] === null) {
     mergeTarget[option] = undefined;
@@ -12672,7 +12923,7 @@ exports.easingFunctions = {
   },
   // acceleration until halfway, then deceleration
   easeInOutQuad: function easeInOutQuad(t) {
-    return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+    return t < .5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
   },
   // accelerating from zero velocity
   easeInCubic: function easeInCubic(t) {
@@ -12684,7 +12935,7 @@ exports.easingFunctions = {
   },
   // acceleration until halfway, then deceleration
   easeInOutCubic: function easeInOutCubic(t) {
-    return t < 0.5 ? 4 * t * t * t : (t - 1) * (2 * t - 2) * (2 * t - 2) + 1;
+    return t < .5 ? 4 * t * t * t : (t - 1) * (2 * t - 2) * (2 * t - 2) + 1;
   },
   // accelerating from zero velocity
   easeInQuart: function easeInQuart(t) {
@@ -12696,7 +12947,7 @@ exports.easingFunctions = {
   },
   // acceleration until halfway, then deceleration
   easeInOutQuart: function easeInOutQuart(t) {
-    return t < 0.5 ? 8 * t * t * t * t : 1 - 8 * --t * t * t * t;
+    return t < .5 ? 8 * t * t * t * t : 1 - 8 * --t * t * t * t;
   },
   // accelerating from zero velocity
   easeInQuint: function easeInQuint(t) {
@@ -12708,11 +12959,11 @@ exports.easingFunctions = {
   },
   // acceleration until halfway, then deceleration
   easeInOutQuint: function easeInOutQuint(t) {
-    return t < 0.5 ? 16 * t * t * t * t * t : 1 + 16 * --t * t * t * t * t;
+    return t < .5 ? 16 * t * t * t * t * t : 1 + 16 * --t * t * t * t * t;
   }
 };
 
-},{"./module/moment":6,"./module/uuid":7}],33:[function(require,module,exports){
+},{"./module/moment":7,"./module/uuid":8}],34:[function(require,module,exports){
 
 /**
  * Expose `Emitter`.
@@ -12878,7 +13129,7 @@ Emitter.prototype.hasListeners = function(event){
   return !! this.listeners(event).length;
 };
 
-},{}],34:[function(require,module,exports){
+},{}],35:[function(require,module,exports){
 /*! Hammer.JS - v2.0.4 - 2014-09-28
  * http://hammerjs.github.io/
  *
@@ -15343,7 +15594,7 @@ if (typeof define == TYPE_FUNCTION && define.amd) {
 
 })(window, document, 'Hammer');
 
-},{}],35:[function(require,module,exports){
+},{}],36:[function(require,module,exports){
 "use strict";
 /**
  * Created by Alex on 11/6/2014.
@@ -15538,7 +15789,7 @@ if (typeof define == TYPE_FUNCTION && define.amd) {
 
 
 
-},{}],36:[function(require,module,exports){
+},{}],37:[function(require,module,exports){
 'use strict';
 
 (function (factory) {
@@ -15581,9 +15832,6 @@ if (typeof define == TYPE_FUNCTION && define.amd) {
    *                          functionality
    */
   return function propagating(hammer, options) {
-    if (options && options.preventDefault === false) {
-      throw new Error('Only supports preventDefault == true');
-    }
     var _options = options || {
       preventDefault: false
     };
@@ -15594,43 +15842,42 @@ if (typeof define == TYPE_FUNCTION && define.amd) {
       var Hammer = hammer;
 
       var PropagatingHammer = function(element, options) {
-        return propagating(new Hammer(element, options), _options);
+        var o = Object.create(_options);
+        if (options) Hammer.extend(o, options);
+        return propagating(new Hammer(element, o), o);
       };
       Hammer.extend(PropagatingHammer, Hammer);
+
       PropagatingHammer.Manager = function (element, options) {
-        return propagating(new Hammer.Manager(element, options), _options);
+        var o = Object.create(_options);
+        if (options) Hammer.extend(o, options);
+        return propagating(new Hammer.Manager(element, o), o);
       };
 
       return PropagatingHammer;
     }
 
+    // create a wrapper object which will override the functions
+    // `on`, `off`, `destroy`, and `emit` of the hammer instance
+    var wrapper = Object.create(hammer);
+
     // attach to DOM element
     var element = hammer.element;
-    element.hammer = hammer;
-
-    // move the original functions that we will wrap
-    hammer._on = hammer.on;
-    hammer._off = hammer.off;
-    hammer._emit = hammer.emit;
-    hammer._destroy = hammer.destroy;
-
-    /** @type {Object.<String, Array.<function>>} */
-    hammer._handlers = {};
+    element.hammer = wrapper;
 
     // register an event to catch the start of a gesture and store the
     // target in a singleton
-    hammer._on('hammer.input', function (event) {
+    hammer.on('hammer.input', function (event) {
       if (_options.preventDefault === true || (_options.preventDefault === event.pointerType)) {
         event.preventDefault();
       }
       if (event.isFirst) {
         _firstTarget = event.target;
-        _processing = true;
-      }
-      if (event.isFinal) {
-        _processing = false;
       }
     });
+
+    /** @type {Object.<String, Array.<function>>} */
+    wrapper._handlers = {};
 
     /**
      * Register a handler for one or multiple events
@@ -15638,20 +15885,20 @@ if (typeof define == TYPE_FUNCTION && define.amd) {
      * @param {function} handler A callback function, called as handler(event)
      * @returns {Hammer.Manager} Returns the hammer instance
      */
-    hammer.on = function (events, handler) {
+    wrapper.on = function (events, handler) {
       // register the handler
       split(events).forEach(function (event) {
-        var _handlers = hammer._handlers[event];
+        var _handlers = wrapper._handlers[event];
         if (!_handlers) {
-          hammer._handlers[event] = _handlers = [];
+          wrapper._handlers[event] = _handlers = [];
 
           // register the static, propagated handler
-          hammer._on(event, propagatedHandler);
+          hammer.on(event, propagatedHandler);
         }
         _handlers.push(handler);
       });
 
-      return hammer;
+      return wrapper;
     };
 
     /**
@@ -15662,27 +15909,27 @@ if (typeof define == TYPE_FUNCTION && define.amd) {
      *                             are removed.
      * @returns {Hammer.Manager}   Returns the hammer instance
      */
-    hammer.off = function (events, handler) {
+    wrapper.off = function (events, handler) {
       // unregister the handler
       split(events).forEach(function (event) {
-        var _handlers = hammer._handlers[event];
+        var _handlers = wrapper._handlers[event];
         if (_handlers) {
           _handlers = handler ? _handlers.filter(function (h) {
             return h !== handler;
           }) : [];
 
           if (_handlers.length > 0) {
-            hammer._handlers[event] = _handlers;
+            wrapper._handlers[event] = _handlers;
           }
           else {
             // remove static, propagated handler
-            hammer._off(event, propagatedHandler);
-            delete hammer._handlers[event];
+            hammer.off(event, propagatedHandler);
+            delete wrapper._handlers[event];
           }
         }
       });
 
-      return hammer;
+      return wrapper;
     };
 
     /**
@@ -15690,23 +15937,20 @@ if (typeof define == TYPE_FUNCTION && define.amd) {
      * @param {string} eventType
      * @param {Event} event
      */
-    hammer.emit = function(eventType, event) {
-      if (!_processing) {
-        _firstTarget = event.target;
-      }
-      hammer._emit(eventType, event);
+    wrapper.emit = function(eventType, event) {
+      _firstTarget = event.target;
+      hammer.emit(eventType, event);
     };
 
-    hammer.destroy = function () {
+    wrapper.destroy = function () {
       // Detach from DOM element
-      var element = hammer.element;
-      delete element.hammer;
+      delete hammer.element.hammer;
 
       // clear all handlers
-      hammer._handlers = {};
+      wrapper._handlers = {};
 
       // call original hammer destroy
-      hammer._destroy();
+      hammer.destroy();
     };
 
     // split a string with space separated words
@@ -15758,14 +16002,9 @@ if (typeof define == TYPE_FUNCTION && define.amd) {
       }
     }
 
-    return hammer;
+    return wrapper;
   };
 }));
 
-},{}],37:[function(require,module,exports){
-'use strict';
-
-exports.Timeline = require('./lib/timeline/Timeline');
-
-},{"./lib/timeline/Timeline":17}]},{},[37])(37)
+},{}]},{},[1])(1)
 });
