@@ -203,8 +203,8 @@
     The Timeline uses regular Arrays and Objects as data format.
     Data items can contain the properties <code>start</code>,
     <code>end</code> (optional), <code>content</code>,
-    <code>group</code> (optional), <code>className</code> (optional),
-    and <code>style</code> (optional).
+    <code>group</code> (optional), <code>className</code> (optional), 
+    <code>editable</code> (optional), and <code>style</code> (optional).
   </p>
 
   <p>
@@ -325,6 +325,11 @@ var items = [
         Types 'box' and 'point' need a start date, the types 'range' and 'background' needs both a start and end date.
       </td>
     </tr>
+    <tr>
+      <td>editable</td>
+      <td>Boolean</td>
+      <td>no</td>
+      <td>Override the editable option of the timeline for a specific item.</td>
   </table>
 
   <h3 id="groups">Groups</h3>
@@ -758,13 +763,13 @@ function (option, path) {
       <td><span parent="orientation" class="right-caret"></span> orientation</td>
       <td>String or Object</td>
       <td><code>'bottom'</code></td>
-      <td>Orientation of the timelines axis and items. When orientation is a string, the value is applied to both items and axis. Can be 'top', 'bottom' (default), or 'both'.</td>
+      <td>Orientation of the timelines axis and items. When orientation is a string, the value is applied to both items and axis. Can be 'top', 'bottom' (default), 'both', or 'none'.</td>
     </tr>
     <tr parent="orientation" class="hidden">
       <td class="indent">orientation.axis</td>
       <td>String</td>
       <td><code>'bottom'</code></td>
-      <td>Orientation of the timeline axis: 'top', 'bottom' (default), or 'both'. If orientation is 'bottom', the time axis is drawn at the bottom. When 'top', the axis is drawn on top. When 'both', two axes are drawn, both on top and at the bottom.</td>
+      <td>Orientation of the timeline axis: 'top', 'bottom' (default), 'both', or 'none'. If orientation is 'bottom', the time axis is drawn at the bottom. When 'top', the axis is drawn on top. When 'both', two axes are drawn, both on top and at the bottom. In case of 'none', no axis is drawn at all.</td>
     </tr>
     <tr parent="orientation" class="hidden">
       <td class="indent">orientation.item</td>
@@ -1001,6 +1006,12 @@ function (option, path) {
           <li><code>what</code> (String or null): name of the clicked thing: <code>item</code>, <code>background</code>, <code>axis</code>, <code>group-label</code>, <code>custom-time</code>, or <code>current-time</code>.</li>
           <li><code>event</code> (Object): the original click event.</li>
         </ul>
+        Example usage:
+        <pre class="prettyprint lang-js">
+document.getElementById('myTimeline').onclick = function (event) {
+  var props = timeline.getEventProperties(event)
+  console.log(props);
+}</pre>
       </td>
     </tr>
 
@@ -1250,6 +1261,7 @@ timeline.off('select', onSelect);
       <td>
         <ul>
           <li><code>items</code>: an array with the ids of the selected items</li>
+          <li><code>event</code>: the original click event</li>
         </ul>
       </td>
       <td>Fired after the user selects or deselects items by tapping or holding them.
@@ -1316,6 +1328,16 @@ var options = {
   }
 };</pre>
 
+  <p>
+    Editing can be enabled/disabled for specific items. Setting the property <code>editable</code> to <code>true</code> or <code>false</code> on a data item will override the timeline option.
+  </p>
+
+<pre class="prettyprint lang-js">
+var items = new vis.DataSet([
+  {id: 1, content: 'read-only item', start: '2013-04-20', editable: false},
+  {id: 2, content: 'editable item', start: '2013-04-14'}
+]);
+</pre>
 
   <p>
     One can specify callback functions to validate changes made by the user. There are a number of callback functions for this purpose:
@@ -1585,3 +1607,5 @@ var options = {
 <script src="../js/bootstrap.min.js"></script>
 <!-- IE10 viewport hack for Surface/desktop Windows 8 bug -->
 <script src="../js/ie10-viewport-bug-workaround.js"></script>
+<!-- controller -->
+<script src="../js/main.js"></script>

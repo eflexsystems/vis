@@ -7,7 +7,7 @@
     <meta name="description" content="">
     <meta name="author" content="">
     <link rel="icon" HREF="favicon.ico">
-    <title>vis.js - A dynamic, browser based visualization library.</title>
+    <title>vis.js - Edges documentation.</title>
 
     <!-- Bootstrap core CSS -->
     <link href="../css/bootstrap.css" rel="stylesheet">
@@ -81,7 +81,7 @@
     <h1>Network - edges</h1>
 
     <p>Handles the creation and deletion of edges and contains the global edge options and styles.</p>
-
+    <a class="btn btn-primary" role="button" onclick="history.back()">Back to overview.</a>
     <h3>Options</h3>
 
     <p>The options for the edges have to be contained in an object titled 'edges'. All of these options can be supplied per edge as well. Obviously, 'id' should not be defined globally but per edge. Options defined
@@ -125,6 +125,7 @@ var options = {
     hidden: false,
     hoverWidth: 1.5,
     label: undefined,
+    labelHighlightBold: true,
     length: undefined,
     physics: true,
     scaling:{
@@ -362,6 +363,12 @@ network.setOptions(options);
             </td>
         </tr>
         <tr>
+            <td>from</td>
+            <td>Number or String</td>
+            <td></td>
+            <td>Edges are between two nodes, one to and one from. This is where you define the from node. You have to supply the corresponding node ID. This naturally only applies to individual edges.</td>
+        </tr>
+        <tr>
             <td>hidden</td>
             <td>Boolean</td>
             <td><code>false</code></td>
@@ -393,13 +400,19 @@ var options: {
             <td>id</td>
             <td>String</td>
             <td><code>undefined</code></td>
-            <td>The id of the edge. The id is optional for edges. When not supplied, an UUID will be assigned to the edge.</td>
+            <td>The id of the edge. The id is optional for edges. When not supplied, an UUID will be assigned to the edge. This naturally only applies to individual edges.</td>
         </tr>
         <tr>
             <td>label</td>
             <td>String</td>
             <td><code>undefined</code></td>
             <td>The label of the edge. HTML does not work in here because the network uses HTML5 Canvas.</td>
+        </tr>
+        <tr>
+            <td>labelHighlightBold</td>
+            <td>Boolean</td>
+            <td><code>true</code></td>
+            <td>Determines whether or not the label becomes bold when the edge is selected.</td>
         </tr>
         <tr>
             <td>length</td>
@@ -508,6 +521,8 @@ var scale = customScalingFunction(min,max,total,value);
 var diff = maxWidth - minWidth;
 myWidth = minWidth + diff * scale;
 </pre>
+                Please note: <code>maxWidth</code> and <code>minWidth</code> are the values <code>scaling.max</code>
+                and <code>scaling.min</code> provided in the options.
             </td>
         </tr>
         <tr>
@@ -615,6 +630,12 @@ var options: {
             <td>The title is shown in a pop-up when the mouse moves over the edge.</td>
         </tr>
         <tr>
+            <td>to</td>
+            <td>Number or String</td>
+            <td></td>
+            <td>Edges are between two nodes, one to and one from. This is where you define the to node. You have to supply the corresponding node ID. This naturally only applies to individual edges.</td>
+        </tr>
+        <tr>
             <td>value</td>
             <td>Number</td>
             <td><code>undefined</code></td>
@@ -639,3 +660,5 @@ var options: {
 <script src="../js/bootstrap.min.js"></script>
 <!-- IE10 viewport hack for Surface/desktop Windows 8 bug -->
 <script src="../js/ie10-viewport-bug-workaround.js"></script>
+<!-- controller -->
+<script src="../js/main.js"></script>
