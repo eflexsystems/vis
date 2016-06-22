@@ -21,6 +21,9 @@
   position: absolute;
   color: #4d4d4d;
   padding: 3px;
+  overflow: hidden;
+  box-sizing: border-box;
+
   white-space: nowrap;
 }
 
@@ -36,6 +39,11 @@
 .vis-time-axis .vis-grid.vis-vertical {
   position: absolute;
   border-left: 1px solid;
+}
+
+.vis-time-axis .vis-grid.vis-vertical-rtl {
+  position: absolute;
+  border-right: 1px solid;
 }
 
 .vis-time-axis .vis-grid.vis-minor {

@@ -10,6 +10,9 @@
 
   <!-- Bootstrap core CSS -->
   <link href="../css/bootstrap.css" rel="stylesheet">
+  <!-- Tipue vendor css -->
+  <link href="../css/tipuesearch.css" rel="stylesheet">
+
   <link href="../css/style.css" rel="stylesheet">
 
 
@@ -33,35 +36,48 @@
 </head>
 <body onload="prettyPrint();">
 
-
 <div class="navbar-wrapper">
-  <div class="container">
-    <nav class="navbar navbar-inverse navbar-static-top" role="navigation">
-      <div class="container">
-        <div class="navbar-header">
-          <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar"
-                  aria-expanded="false" aria-controls="navbar">
-            <span class="sr-only">Toggle navigation</span>
-            <span class="icon-bar"></span>
-            <span class="icon-bar"></span>
-            <span class="icon-bar"></span>
-          </button>
-          <a class="navbar-brand hidden-sm" href="./index.html">vis.js</a>
-        </div>
-        <div id="navbar" class="navbar-collapse collapse">
-          <ul class="nav navbar-nav">
-            <li><a href="http://www.visjs.org/index.html#modules">Modules</a></li>
-            <li><a href="http://www.visjs.org/blog.html">Blog</a></li>
-            <li><a href="http://www.visjs.org/index.html#download_install">Download</a></li>
-            <li><a href="http://www.visjs.org/showcase/index.html">Showcase</a></li>
-            <li><a href="http://www.visjs.org/index.html#contribute">Contribute</a></li>
-            <li><a href="http://www.visjs.org/featureRequests.html">Feature requests</a></li>
-            <li><a href="http://www.visjs.org/index.html#licenses">License</a></li>
-          </ul>
-        </div>
-      </div>
-    </nav>
-  </div>
+    <div class="container">
+        <nav class="navbar navbar-inverse navbar-static-top" role="navigation">
+            <div class="container">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar"
+                            aria-expanded="false" aria-controls="navbar">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand hidden-sm" href="./index.html">vis.js</a>
+                </div>
+                <div id="navbar" class="navbar-collapse collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="http://www.visjs.org/index.html#modules">Modules</a></li>
+                        <li><a href="http://www.visjs.org/blog.html">Blog</a></li>
+                        <li><a href="http://www.visjs.org/index.html#download_install">Download</a></li>
+                        <li><a href="http://www.visjs.org/showcase/index.html">Showcase</a></li>
+                        <li><a href="http://www.visjs.org/index.html#contribute">Contribute</a></li>
+                        <li><a href="http://www.visjs.org/featureRequests.html">Feature requests</a></li>
+                        <li><a href="http://www.visjs.org/index.html#licenses">License</a></li>
+                    </ul>
+                    <form class="navbar-form navbar-right" role="search">
+                        <input name="q" id="tipue_search_input" autocomplete="off" type="text" class="form-control" placeholder="Enter keywords">
+                        <button type="submit" class="btn btn-default">Go!</button>
+                    </form>
+                    <div id="search-results-wrapper" class="panel panel-default">
+                      <div class="panel-body">
+                        <div id="tipue_search_content"></div>
+                      </div>
+                    </div>
+                    <div id="keyword-info" class="panel panel-success">
+                      <div class="panel-body">
+                          Found <span id="keyword-count"></span> results. Click <a id="keyword-jumper-button" href="">here</a> to jump to the first keyword occurence!
+                      </div>
+                    </div>
+                </div>
+            </div>
+        </nav>
+    </div>
 </div>
 
 <a href="https://github.com/almende/vis" class="hidden-xs hidden-sm hidden-md"><img style="position: absolute; top: 0; right: 0; border: 0;" src="https://camo.githubusercontent.com/38ef81f8aca64bb9a64448d0d70f1308ef5341ab/68747470733a2f2f73332e616d617a6f6e6177732e636f6d2f6769746875622f726962626f6e732f666f726b6d655f72696768745f6461726b626c75655f3132313632312e706e67" alt="Fork me on GitHub" data-canonical-src="https://s3.amazonaws.com/github/ribbons/forkme_right_darkblue_121621.png"></a>
@@ -88,7 +104,7 @@
     Vis.js comes with a flexible DataSet, which can be used to hold and
     manipulate unstructured data and listen for changes in the data.
     The DataSet is key/value based. Data items can be added, updated and
-    removed from the DatSet, and one can subscribe to changes in the DataSet.
+    removed from the DataSet, and one can subscribe to changes in the DataSet.
     The data in the DataSet can be filtered and ordered, and fields (like
     dates) can be converted to a specific type. Data can be normalized when
     appending it to the DataSet as well.
@@ -296,7 +312,7 @@ var data = new vis.DataSet([data] [, options])
       <td>Object | Array</td>
       <td>
         Get a single item, multiple items, or all items from the DataSet.
-        Usage examples can be found in section <a href="#Getting_Data">Getting Data</a>, and the available <code>options</code> are described in section <a href="#Data_Selection">Data Selection</a>.
+        Usage examples can be found in section <a href="#Getting_Data">Getting Data</a>, and the available <code>options</code> are described in section <a href="#Data_Selection">Data Selection</a>. When no item is found, <code>null</code> is returned when a single item was requested, and and empty Array is returned in case of multiple id's.
       </td>
     </tr>
 
@@ -415,7 +431,7 @@ var data = new vis.DataSet([data] [, options])
       </td>
       <td>Number[]</td>
       <td>
-        Update on ore multiple existing items. <code>data</code> can be a single item or an array with items. When an item doesn't  exist, it will be created. Returns an array with the ids of the removed items. See section <a href="#Data_Manipulation">Data Manipulation</a>.
+        Update one or multiple existing items. <code>data</code> can be a single item or an array with items. When an item doesn't exist, it will be created. Returns an array with the ids of the removed items. See section <a href="#Data_Manipulation">Data Manipulation</a>.
       </td>
     </tr>
 
@@ -582,9 +598,9 @@ function (event, properties, senderId) {
         <code>update</code>, and <code>remove</code>,
         <code>properties</code> is always an object containing a property
         <code>items</code>, which contains an array with the ids of the affected
-        items. The <code>update</code> event has an extra field <code>data</code>
-        containing the original data of the updated items, i.e. the gives the
-        changed fields of the changed items.
+        items. The <code>update</code> event has an extra field <code>oldData</code>
+        containing the original data of the updated items, and a field <code>data</code>
+        containing the changes: the properties of the items that are being updated.
       </td>
     </tr>
     <tr>
@@ -997,5 +1013,11 @@ var positiveBalance = dataset.get({
 <script src="../js/bootstrap.min.js"></script>
 <!-- IE10 viewport hack for Surface/desktop Windows 8 bug -->
 <script src="../js/ie10-viewport-bug-workaround.js"></script>
+<!-- jquery extensions -->
+<script src="../js/jquery.highlight.js"></script>
+<script src="../js/jquery.url.min.js"></script>
+<!-- Tipue vendor js -->
+<script src="../js/tipuesearch.config.js"></script>
+<script src="../js/tipuesearch.js"></script>
 <!-- controller -->
 <script src="../js/main.js"></script>
