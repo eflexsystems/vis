@@ -68,14 +68,14 @@ function DataSet(data, options) {
   // all variants of a Date are internally stored as Date, so we can convert
   // from everything to everything (also from ISODate to Number for example)
   if (this._options.type) {
-    for (var field in this._options.type) {
-      if (this._options.type.hasOwnProperty(field)) {
-        var value = this._options.type[field];
-        if (value == 'Date' || value == 'ISODate' || value == 'ASPDate') {
-          this._type[field] = 'Date';
-        } else {
-          this._type[field] = value;
-        }
+    var fields = Object.keys(this._options.type);
+    for (var i = 0, len = fields.length; i < len; i++) {
+      var field = fields[i];
+      var value = this._options.type[field];
+      if (value == 'Date' || value == 'ISODate' || value == 'ASPDate') {
+        this._type[field] = 'Date';
+      } else {
+        this._type[field] = value;
       }
     }
   }
@@ -192,7 +192,7 @@ DataSet.prototype._trigger = function (event, params, senderId) {
     subscribers = subscribers.concat(this._subscribers['*']);
   }
 
-  for (var i = 0; i < subscribers.length; i++) {
+  for (var i = 0, len = subscribers.length; i < len; i++) {
     var subscriber = subscribers[i];
     if (subscriber.callback) {
       subscriber.callback(event, params, senderId || null);
@@ -242,6 +242,7 @@ DataSet.prototype.add = function (data, senderId) {
 DataSet.prototype.update = function (data, senderId) {
   var addedIds = [];
   var updatedIds = [];
+  var oldData = [];
   var updatedData = [];
   var me = this;
   var fieldId = me._fieldId;
@@ -249,10 +250,12 @@ DataSet.prototype.update = function (data, senderId) {
   var addOrUpdate = function addOrUpdate(item) {
     var id = item[fieldId];
     if (me._data[id]) {
+      var oldItem = util.extend({}, me._data[id]);
       // update item
       id = me._updateItem(item);
       updatedIds.push(id);
       updatedData.push(item);
+      oldData.push(oldItem);
     } else {
       // add new item
       id = me._addItem(item);
@@ -263,7 +266,11 @@ DataSet.prototype.update = function (data, senderId) {
   if (Array.isArray(data)) {
     // Array
     for (var i = 0, len = data.length; i < len; i++) {
-      addOrUpdate(data[i]);
+      if (data[i] instanceof Object) {
+        addOrUpdate(data[i]);
+      } else {
+        console.warn('Ignoring input item, which is not an object at index ' + i);
+      }
     }
   } else if (data instanceof Object) {
     // Single item
@@ -276,7 +283,15 @@ DataSet.prototype.update = function (data, senderId) {
     this._trigger('add', { items: addedIds }, senderId);
   }
   if (updatedIds.length) {
-    this._trigger('update', { items: updatedIds, data: updatedData }, senderId);
+    var props = { items: updatedIds, oldData: oldData, data: updatedData };
+    // TODO: remove deprecated property 'data' some day
+    //Object.defineProperty(props, 'data', {
+    //  'get': (function() {
+    //    console.warn('Property data is deprecated. Use DataSet.get(ids) to retrieve the new data, use the oldData property on this object to get the old data');
+    //    return updatedData;
+    //  }).bind(this)
+    //});
+    this._trigger('update', props, senderId);
   }
 
   return addedIds.concat(updatedIds);
@@ -342,6 +357,7 @@ DataSet.prototype.get = function (args) {
   var filter = options && options.filter;
   var items = [],
       item,
+      itemIds,
       itemId,
       i,
       len;
@@ -350,7 +366,7 @@ DataSet.prototype.get = function (args) {
   if (id != undefined) {
     // return a single item
     item = me._getItem(id, type);
-    if (filter && !filter(item)) {
+    if (item && filter && !filter(item)) {
       item = null;
     }
   } else if (ids != undefined) {
@@ -363,12 +379,12 @@ DataSet.prototype.get = function (args) {
     }
   } else {
     // return all items
-    for (itemId in this._data) {
-      if (this._data.hasOwnProperty(itemId)) {
-        item = me._getItem(itemId, type);
-        if (!filter || filter(item)) {
-          items.push(item);
-        }
+    itemIds = Object.keys(this._data);
+    for (i = 0, len = itemIds.length; i < len; i++) {
+      itemId = itemIds[i];
+      item = me._getItem(itemId, type);
+      if (!filter || filter(item)) {
+        items.push(item);
       }
     }
   }
@@ -392,9 +408,11 @@ DataSet.prototype.get = function (args) {
 
   // return the results
   if (returnType == 'Object') {
-    var result = {};
-    for (i = 0; i < items.length; i++) {
-      result[items[i].id] = items[i];
+    var result = {},
+        resultant;
+    for (i = 0, len = items.length; i < len; i++) {
+      resultant = items[i];
+      result[resultant.id] = resultant;
     }
     return result;
   } else {
@@ -421,6 +439,7 @@ DataSet.prototype.getIds = function (options) {
       filter = options && options.filter,
       order = options && options.order,
       type = options && options.type || this._options.type,
+      itemIds = Object.keys(data),
       i,
       len,
       id,
@@ -433,28 +452,26 @@ DataSet.prototype.getIds = function (options) {
     if (order) {
       // create ordered list
       items = [];
-      for (id in data) {
-        if (data.hasOwnProperty(id)) {
-          item = this._getItem(id, type);
-          if (filter(item)) {
-            items.push(item);
-          }
+      for (i = 0, len = itemIds.length; i < len; i++) {
+        id = itemIds[i];
+        item = this._getItem(id, type);
+        if (filter(item)) {
+          items.push(item);
         }
       }
 
       this._sort(items, order);
 
       for (i = 0, len = items.length; i < len; i++) {
-        ids[i] = items[i][this._fieldId];
+        ids.push(items[i][this._fieldId]);
       }
     } else {
       // create unordered list
-      for (id in data) {
-        if (data.hasOwnProperty(id)) {
-          item = this._getItem(id, type);
-          if (filter(item)) {
-            ids.push(item[this._fieldId]);
-          }
+      for (i = 0, len = itemIds.length; i < len; i++) {
+        id = itemIds[i];
+        item = this._getItem(id, type);
+        if (filter(item)) {
+          ids.push(item[this._fieldId]);
         }
       }
     }
@@ -463,24 +480,22 @@ DataSet.prototype.getIds = function (options) {
     if (order) {
       // create an ordered list
       items = [];
-      for (id in data) {
-        if (data.hasOwnProperty(id)) {
-          items.push(data[id]);
-        }
+      for (i = 0, len = itemIds.length; i < len; i++) {
+        id = itemIds[i];
+        items.push(data[id]);
       }
 
       this._sort(items, order);
 
       for (i = 0, len = items.length; i < len; i++) {
-        ids[i] = items[i][this._fieldId];
+        ids.push(items[i][this._fieldId]);
       }
     } else {
       // create unordered list
-      for (id in data) {
-        if (data.hasOwnProperty(id)) {
-          item = data[id];
-          ids.push(item[this._fieldId]);
-        }
+      for (i = 0, len = itemIds.length; i < len; i++) {
+        id = itemIds[i];
+        item = data[id];
+        ids.push(item[this._fieldId]);
       }
     }
   }
@@ -510,6 +525,9 @@ DataSet.prototype.forEach = function (callback, options) {
   var filter = options && options.filter,
       type = options && options.type || this._options.type,
       data = this._data,
+      itemIds = Object.keys(data),
+      i,
+      len,
       item,
       id;
 
@@ -517,19 +535,18 @@ DataSet.prototype.forEach = function (callback, options) {
     // execute forEach on ordered list
     var items = this.get(options);
 
-    for (var i = 0, len = items.length; i < len; i++) {
+    for (i = 0, len = items.length; i < len; i++) {
       item = items[i];
       id = item[this._fieldId];
       callback(item, id);
     }
   } else {
     // unordered
-    for (id in data) {
-      if (data.hasOwnProperty(id)) {
-        item = this._getItem(id, type);
-        if (!filter || filter(item)) {
-          callback(item, id);
-        }
+    for (i = 0, len = itemIds.length; i < len; i++) {
+      id = itemIds[i];
+      item = this._getItem(id, type);
+      if (!filter || filter(item)) {
+        callback(item, id);
       }
     }
   }
@@ -551,15 +568,18 @@ DataSet.prototype.map = function (callback, options) {
       type = options && options.type || this._options.type,
       mappedItems = [],
       data = this._data,
+      itemIds = Object.keys(data),
+      i,
+      len,
+      id,
       item;
 
   // convert and filter items
-  for (var id in data) {
-    if (data.hasOwnProperty(id)) {
-      item = this._getItem(id, type);
-      if (!filter || filter(item)) {
-        mappedItems.push(callback(item, id));
-      }
+  for (i = 0, len = itemIds.length; i < len; i++) {
+    id = itemIds[i];
+    item = this._getItem(id, type);
+    if (!filter || filter(item)) {
+      mappedItems.push(callback(item, id));
     }
   }
 
@@ -584,17 +604,23 @@ DataSet.prototype._filterFields = function (item, fields) {
     return item;
   }
 
-  var filteredItem = {};
+  var filteredItem = {},
+      itemFields = Object.keys(item),
+      len = itemFields.length,
+      i,
+      field;
 
   if (Array.isArray(fields)) {
-    for (var field in item) {
-      if (item.hasOwnProperty(field) && fields.indexOf(field) != -1) {
+    for (i = 0; i < len; i++) {
+      field = itemFields[i];
+      if (fields.indexOf(field) != -1) {
         filteredItem[field] = item[field];
       }
     }
   } else {
-    for (var field in item) {
-      if (item.hasOwnProperty(field) && fields.hasOwnProperty(field)) {
+    for (i = 0; i < len; i++) {
+      field = itemFields[i];
+      if (fields.hasOwnProperty(field)) {
         filteredItem[fields[field]] = item[field];
       }
     }
@@ -625,8 +651,8 @@ DataSet.prototype._sort = function (items, order) {
   // TODO: extend order by an Object {field:String, direction:String}
   //       where direction can be 'asc' or 'desc'
   else {
-    throw new TypeError('Order must be a function or a string');
-  }
+      throw new TypeError('Order must be a function or a string');
+    }
 };
 
 /**
@@ -678,7 +704,7 @@ DataSet.prototype._remove = function (id) {
     }
   } else if (id instanceof Object) {
     var itemId = id[this._fieldId];
-    if (itemId && this._data[itemId]) {
+    if (itemId !== undefined && this._data[itemId]) {
       delete this._data[itemId];
       this.length--;
       return itemId;
@@ -710,17 +736,19 @@ DataSet.prototype.clear = function (senderId) {
  */
 DataSet.prototype.max = function (field) {
   var data = this._data,
+      itemIds = Object.keys(data),
       max = null,
-      maxField = null;
+      maxField = null,
+      i,
+      len;
 
-  for (var id in data) {
-    if (data.hasOwnProperty(id)) {
-      var item = data[id];
-      var itemField = item[field];
-      if (itemField != null && (!max || itemField > maxField)) {
-        max = item;
-        maxField = itemField;
-      }
+  for (i = 0, len = itemIds.length; i < len; i++) {
+    var id = itemIds[i];
+    var item = data[id];
+    var itemField = item[field];
+    if (itemField != null && (!max || itemField > maxField)) {
+      max = item;
+      maxField = itemField;
     }
   }
 
@@ -734,17 +762,19 @@ DataSet.prototype.max = function (field) {
  */
 DataSet.prototype.min = function (field) {
   var data = this._data,
+      itemIds = Object.keys(data),
       min = null,
-      minField = null;
+      minField = null,
+      i,
+      len;
 
-  for (var id in data) {
-    if (data.hasOwnProperty(id)) {
-      var item = data[id];
-      var itemField = item[field];
-      if (itemField != null && (!min || itemField < minField)) {
-        min = item;
-        minField = itemField;
-      }
+  for (i = 0, len = itemIds.length; i < len; i++) {
+    var id = itemIds[i];
+    var item = data[id];
+    var itemField = item[field];
+    if (itemField != null && (!min || itemField < minField)) {
+      min = item;
+      minField = itemField;
     }
   }
 
@@ -760,31 +790,31 @@ DataSet.prototype.min = function (field) {
  */
 DataSet.prototype.distinct = function (field) {
   var data = this._data;
+  var itemIds = Object.keys(data);
   var values = [];
   var fieldType = this._options.type && this._options.type[field] || null;
   var count = 0;
-  var i;
+  var i, j, len;
 
-  for (var prop in data) {
-    if (data.hasOwnProperty(prop)) {
-      var item = data[prop];
-      var value = item[field];
-      var exists = false;
-      for (i = 0; i < count; i++) {
-        if (values[i] == value) {
-          exists = true;
-          break;
-        }
+  for (i = 0, len = itemIds.length; i < len; i++) {
+    var id = itemIds[i];
+    var item = data[id];
+    var value = item[field];
+    var exists = false;
+    for (j = 0; j < count; j++) {
+      if (values[j] == value) {
+        exists = true;
+        break;
       }
-      if (!exists && value !== undefined) {
-        values[count] = value;
-        count++;
-      }
+    }
+    if (!exists && value !== undefined) {
+      values[count] = value;
+      count++;
     }
   }
 
   if (fieldType) {
-    for (i = 0; i < values.length; i++) {
+    for (i = 0, len = values.length; i < len; i++) {
       values[i] = util.convert(values[i], fieldType);
     }
   }
@@ -813,12 +843,14 @@ DataSet.prototype._addItem = function (item) {
     item[this._fieldId] = id;
   }
 
-  var d = {};
-  for (var field in item) {
-    if (item.hasOwnProperty(field)) {
-      var fieldType = this._type[field]; // type may be undefined
-      d[field] = util.convert(item[field], fieldType);
-    }
+  var d = {},
+      fields = Object.keys(item),
+      i,
+      len;
+  for (i = 0, len = fields.length; i < len; i++) {
+    var field = fields[i];
+    var fieldType = this._type[field]; // type may be undefined
+    d[field] = util.convert(item[field], fieldType);
   }
   this._data[id] = d;
   this.length++;
@@ -834,7 +866,7 @@ DataSet.prototype._addItem = function (item) {
  * @private
  */
 DataSet.prototype._getItem = function (id, types) {
-  var field, value;
+  var field, value, i, len;
 
   // get the item from the dataset
   var raw = this._data[id];
@@ -843,21 +875,21 @@ DataSet.prototype._getItem = function (id, types) {
   }
 
   // convert the items field types
-  var converted = {};
+  var converted = {},
+      fields = Object.keys(raw);
+
   if (types) {
-    for (field in raw) {
-      if (raw.hasOwnProperty(field)) {
-        value = raw[field];
-        converted[field] = util.convert(value, types[field]);
-      }
+    for (i = 0, len = fields.length; i < len; i++) {
+      field = fields[i];
+      value = raw[field];
+      converted[field] = util.convert(value, types[field]);
     }
   } else {
     // no field types specified, no converting needed
-    for (field in raw) {
-      if (raw.hasOwnProperty(field)) {
-        value = raw[field];
-        converted[field] = value;
-      }
+    for (i = 0, len = fields.length; i < len; i++) {
+      field = fields[i];
+      value = raw[field];
+      converted[field] = value;
     }
   }
   return converted;
@@ -883,11 +915,11 @@ DataSet.prototype._updateItem = function (item) {
   }
 
   // merge with current item
-  for (var field in item) {
-    if (item.hasOwnProperty(field)) {
-      var fieldType = this._type[field]; // type may be undefined
-      d[field] = util.convert(item[field], fieldType);
-    }
+  var fields = Object.keys(item);
+  for (var i = 0, len = fields.length; i < len; i++) {
+    var field = fields[i];
+    var fieldType = this._type[field]; // type may be undefined
+    d[field] = util.convert(item[field], fieldType);
   }
 
   return id;
@@ -935,7 +967,7 @@ function DataView(data, options) {
  * @param {DataSet | DataView} data
  */
 DataView.prototype.setData = function (data) {
-  var ids, i, len;
+  var ids, id, i, len;
 
   if (this._data) {
     // unsubscribe from current dataset
@@ -944,12 +976,7 @@ DataView.prototype.setData = function (data) {
     }
 
     // trigger a remove of all items in memory
-    ids = [];
-    for (var id in this._ids) {
-      if (this._ids.hasOwnProperty(id)) {
-        ids.push(id);
-      }
-    }
+    ids = Object.keys(this._ids);
     this._ids = {};
     this.length = 0;
     this._trigger('remove', { items: ids });
@@ -982,33 +1009,33 @@ DataView.prototype.setData = function (data) {
  * containing a variable parameter.
  */
 DataView.prototype.refresh = function () {
-  var id;
+  var id, i, len;
   var ids = this._data.getIds({ filter: this._options && this._options.filter });
+  var oldIds = Object.keys(this._ids);
   var newIds = {};
   var added = [];
   var removed = [];
 
   // check for additions
-  for (var i = 0; i < ids.length; i++) {
+  for (i = 0, len = ids.length; i < len; i++) {
     id = ids[i];
     newIds[id] = true;
     if (!this._ids[id]) {
       added.push(id);
       this._ids[id] = true;
-      this.length++;
     }
   }
 
   // check for removals
-  for (id in this._ids) {
-    if (this._ids.hasOwnProperty(id)) {
-      if (!newIds[id]) {
-        removed.push(id);
-        delete this._ids[id];
-        this.length--;
-      }
+  for (i = 0, len = oldIds.length; i < len; i++) {
+    id = oldIds[i];
+    if (!newIds[id]) {
+      removed.push(id);
+      delete this._ids[id];
     }
   }
+
+  this.length += added.length - removed.length;
 
   // trigger events
   if (added.length) {
@@ -1130,6 +1157,46 @@ DataView.prototype.getIds = function (options) {
 };
 
 /**
+ * Map every item in the dataset.
+ * @param {function} callback
+ * @param {Object} [options]    Available options:
+ *                              {Object.<String, String>} [type]
+ *                              {String[]} [fields] filter fields
+ *                              {function} [filter] filter items
+ *                              {String | function} [order] Order the items by
+ *                                  a field name or custom sort function.
+ * @return {Object[]} mappedItems
+ */
+DataView.prototype.map = function (callback, options) {
+  var mappedItems = [];
+  if (this._data) {
+    var defaultFilter = this._options.filter;
+    var filter;
+
+    if (options && options.filter) {
+      if (defaultFilter) {
+        filter = function (item) {
+          return defaultFilter(item) && options.filter(item);
+        };
+      } else {
+        filter = options.filter;
+      }
+    } else {
+      filter = defaultFilter;
+    }
+
+    mappedItems = this._data.map(callback, {
+      filter: filter,
+      order: options && options.order
+    });
+  } else {
+    mappedItems = [];
+  }
+
+  return mappedItems;
+};
+
+/**
  * Get the DataSet to which this DataView is connected. In case there is a chain
  * of multiple DataViews, the root DataSet of this chain is returned.
  * @return {DataSet} dataSet
@@ -1194,7 +1261,9 @@ DataView.prototype._onEvent = function (event, params, senderId) {
             if (this._ids[id]) {
               delete this._ids[id];
               removed.push(id);
-            } else {}
+            } else {
+              // nothing interesting for me :-(
+            }
           }
         }
 
@@ -1237,8 +1306,6 @@ DataView.prototype.subscribe = DataView.prototype.on;
 DataView.prototype.unsubscribe = DataView.prototype.off;
 
 module.exports = DataView;
-
-// nothing interesting for me :-(
 
 },{"./DataSet":2,"./util":33}],4:[function(require,module,exports){
 /**
@@ -1454,22 +1521,13 @@ var Hammer = require('./module/hammer');
  */
 exports.onTouch = function (hammer, callback) {
   callback.inputHandler = function (event) {
-    if (event.isFirst && !isTouching) {
+    if (event.isFirst) {
       callback(event);
-
-      isTouching = true;
-      setTimeout(function () {
-        isTouching = false;
-      }, 0);
     }
   };
 
   hammer.on('hammer.input', callback.inputHandler);
 };
-
-// isTouching is true while a touch action is being emitted
-// this is a hack to prevent `touch` from being fired twice
-var isTouching = false;
 
 /**
  * Register a release event, taking place after a gesture
@@ -1478,22 +1536,13 @@ var isTouching = false;
  */
 exports.onRelease = function (hammer, callback) {
   callback.inputHandler = function (event) {
-    if (event.isFinal && !isReleasing) {
+    if (event.isFinal) {
       callback(event);
-
-      isReleasing = true;
-      setTimeout(function () {
-        isReleasing = false;
-      }, 0);
     }
   };
 
   return hammer.on('hammer.input', callback.inputHandler);
 };
-
-// isReleasing is true while a release action is being emitted
-// this is a hack to prevent `release` from being fired twice
-var isReleasing = false;
 
 /**
  * Unregister a touch event, taking place before a gesture
@@ -1510,6 +1559,26 @@ exports.offTouch = function (hammer, callback) {
  * @param {function} callback   Callback, called as callback(event)
  */
 exports.offRelease = exports.offTouch;
+
+/**
+ * Hack the PinchRecognizer such that it doesn't prevent default behavior
+ * for vertical panning.
+ *
+ * Yeah ... this is quite a hack ... see https://github.com/hammerjs/hammer.js/issues/932
+ *
+ * @param {Hammer.Pinch} pinchRecognizer
+ * @return {Hammer.Pinch} returns the pinchRecognizer
+ */
+exports.disablePreventDefaultVertically = function (pinchRecognizer) {
+  var TOUCH_ACTION_PAN_Y = 'pan-y';
+
+  pinchRecognizer.getTouchAction = function () {
+    // default method returns [TOUCH_ACTION_NONE]
+    return [TOUCH_ACTION_PAN_Y];
+  };
+
+  return pinchRecognizer;
+};
 
 },{"./module/hammer":6}],6:[function(require,module,exports){
 // Only load hammer.js when in a browser environment
@@ -1528,14 +1597,14 @@ if (typeof window !== 'undefined') {
   };
 }
 
-},{"hammerjs":35,"propagating-hammerjs":37}],7:[function(require,module,exports){
+},{"hammerjs":35,"propagating-hammerjs":38}],7:[function(require,module,exports){
 // first check if moment.js is already loaded in the browser window, if so,
 // use this instance. Else, load via commonjs.
 'use strict';
 
 module.exports = typeof window !== 'undefined' && window['moment'] || require('moment');
 
-},{"moment":"moment"}],8:[function(require,module,exports){
+},{"moment":37}],8:[function(require,module,exports){
 (function (global){
 'use strict';
 
@@ -1912,21 +1981,9 @@ Object.defineProperty(exports, '__esModule', {
   value: true
 });
 
-var _createClass = (function () {
-  function defineProperties(target, props) {
-    for (var i = 0; i < props.length; i++) {
-      var descriptor = props[i];descriptor.enumerable = descriptor.enumerable || false;descriptor.configurable = true;if ('value' in descriptor) descriptor.writable = true;Object.defineProperty(target, descriptor.key, descriptor);
-    }
-  }return function (Constructor, protoProps, staticProps) {
-    if (protoProps) defineProperties(Constructor.prototype, protoProps);if (staticProps) defineProperties(Constructor, staticProps);return Constructor;
-  };
-})();
+var _createClass = (function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ('value' in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; })();
 
-function _classCallCheck(instance, Constructor) {
-  if (!(instance instanceof Constructor)) {
-    throw new TypeError('Cannot call a class as a function');
-  }
-}
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError('Cannot call a class as a function'); } }
 
 var Hammer = require('../module/hammer');
 var hammerUtil = require('../hammerUtil');
@@ -1950,18 +2007,19 @@ var ColorPicker = (function () {
 
     // bound by
     this.updateCallback = function () {};
+    this.closeCallback = function () {};
 
     // create all DOM elements
     this._create();
   }
 
+  /**
+   * this inserts the colorPicker into a div from the DOM
+   * @param container
+   */
+
   _createClass(ColorPicker, [{
     key: 'insertTo',
-
-    /**
-     * this inserts the colorPicker into a div from the DOM
-     * @param container
-     */
     value: function insertTo(container) {
       if (this.hammer !== undefined) {
         this.hammer.destroy();
@@ -1973,18 +2031,32 @@ var ColorPicker = (function () {
 
       this._setSize();
     }
-  }, {
-    key: 'setCallback',
 
     /**
      * the callback is executed on apply and save. Bind it to the application
      * @param callback
      */
-    value: function setCallback(callback) {
+  }, {
+    key: 'setUpdateCallback',
+    value: function setUpdateCallback(callback) {
       if (typeof callback === 'function') {
         this.updateCallback = callback;
       } else {
-        throw new Error('Function attempted to set as colorPicker callback is not a function.');
+        throw new Error("Function attempted to set as colorPicker update callback is not a function.");
+      }
+    }
+
+    /**
+     * the callback is executed on apply and save. Bind it to the application
+     * @param callback
+     */
+  }, {
+    key: 'setCloseCallback',
+    value: function setCloseCallback(callback) {
+      if (typeof callback === 'function') {
+        this.closeCallback = callback;
+      } else {
+        throw new Error("Function attempted to set as colorPicker closing callback is not a function.");
       }
     }
   }, {
@@ -1995,8 +2067,6 @@ var ColorPicker = (function () {
         return htmlColors[color];
       }
     }
-  }, {
-    key: 'setColor',
 
     /**
      * Set the color of the colorPicker
@@ -2010,6 +2080,8 @@ var ColorPicker = (function () {
      * @param color
      * @param setInitial
      */
+  }, {
+    key: 'setColor',
     value: function setColor(color) {
       var setInitial = arguments.length <= 1 || arguments[1] === undefined ? true : arguments[1];
 
@@ -2048,28 +2120,28 @@ var ColorPicker = (function () {
 
       // set color
       if (rgba === undefined) {
-        throw new Error('Unknown color passed to the colorPicker. Supported are strings: rgb, hex, rgba. Object: rgb ({r:r,g:g,b:b,[a:a]}). Supplied: ' + JSON.stringify(color));
+        throw new Error("Unknown color passed to the colorPicker. Supported are strings: rgb, hex, rgba. Object: rgb ({r:r,g:g,b:b,[a:a]}). Supplied: " + JSON.stringify(color));
       } else {
         this._setColor(rgba, setInitial);
       }
     }
-  }, {
-    key: 'show',
 
     /**
-     * this shows the color picker at a location. The hue circle is constructed once and stored.
-     * @param x
-     * @param y
+     * this shows the color picker.
+     * The hue circle is constructed once and stored.
      */
-    value: function show(x, y) {
+  }, {
+    key: 'show',
+    value: function show() {
+      if (this.closeCallback !== undefined) {
+        this.closeCallback();
+        this.closeCallback = undefined;
+      }
+
       this.applied = false;
       this.frame.style.display = 'block';
-      this.frame.style.top = y + 'px';
-      this.frame.style.left = x + 'px';
       this._generateHueCircle();
     }
-  }, {
-    key: '_hide',
 
     // ------------------------------------------ PRIVATE ----------------------------- //
 
@@ -2079,7 +2151,11 @@ var ColorPicker = (function () {
      * @param storePrevious
      * @private
      */
+  }, {
+    key: '_hide',
     value: function _hide() {
+      var _this = this;
+
       var storePrevious = arguments.length <= 0 || arguments[0] === undefined ? true : arguments[0];
 
       // store the previous color for next time;
@@ -2092,47 +2168,54 @@ var ColorPicker = (function () {
       }
 
       this.frame.style.display = 'none';
+
+      // call the closing callback, restoring the onclick method.
+      // this is in a setTimeout because it will trigger the show again before the click is done.
+      setTimeout(function () {
+        if (_this.closeCallback !== undefined) {
+          _this.closeCallback();
+          _this.closeCallback = undefined;
+        }
+      }, 0);
     }
-  }, {
-    key: '_save',
 
     /**
      * bound to the save button. Saves and hides.
      * @private
      */
+  }, {
+    key: '_save',
     value: function _save() {
       this.updateCallback(this.color);
       this.applied = false;
       this._hide();
     }
-  }, {
-    key: '_apply',
 
     /**
      * Bound to apply button. Saves but does not close. Is undone by the cancel button.
      * @private
      */
+  }, {
+    key: '_apply',
     value: function _apply() {
       this.applied = true;
       this.updateCallback(this.color);
       this._updatePicker(this.color);
     }
-  }, {
-    key: '_loadLast',
 
     /**
      * load the color from the previous session.
      * @private
      */
+  }, {
+    key: '_loadLast',
     value: function _loadLast() {
       if (this.previousColor !== undefined) {
         this.setColor(this.previousColor, false);
       } else {
-        alert('There is no last color to load...');
+        alert("There is no last color to load...");
       }
     }
-  }, {
-    key: '_setColor',
 
     /**
      * set the color, place the picker
@@ -2140,6 +2223,8 @@ var ColorPicker = (function () {
      * @param setInitial
      * @private
      */
+  }, {
+    key: '_setColor',
     value: function _setColor(rgba) {
       var setInitial = arguments.length <= 1 || arguments[1] === undefined ? true : arguments[1];
 
@@ -2161,26 +2246,26 @@ var ColorPicker = (function () {
 
       this._updatePicker(rgba);
     }
-  }, {
-    key: '_setOpacity',
 
     /**
      * bound to opacity control
      * @param value
      * @private
      */
+  }, {
+    key: '_setOpacity',
     value: function _setOpacity(value) {
       this.color.a = value / 100;
       this._updatePicker(this.color);
     }
-  }, {
-    key: '_setBrightness',
 
     /**
      * bound to brightness control
      * @param value
      * @private
      */
+  }, {
+    key: '_setBrightness',
     value: function _setBrightness(value) {
       var hsv = util.RGBToHSV(this.color.r, this.color.g, this.color.b);
       hsv.v = value / 100;
@@ -2189,14 +2274,14 @@ var ColorPicker = (function () {
       this.color = rgba;
       this._updatePicker();
     }
-  }, {
-    key: '_updatePicker',
 
     /**
-     * update the colorpicker. A black circle overlays the hue circle to mimic the brightness decreasing.
+     * update the color picker. A black circle overlays the hue circle to mimic the brightness decreasing.
      * @param rgba
      * @private
      */
+  }, {
+    key: '_updatePicker',
     value: function _updatePicker() {
       var rgba = arguments.length <= 0 || arguments[0] === undefined ? this.color : arguments[0];
 
@@ -2223,13 +2308,13 @@ var ColorPicker = (function () {
       this.initialColorDiv.style.backgroundColor = 'rgba(' + this.initialColor.r + ',' + this.initialColor.g + ',' + this.initialColor.b + ',' + this.initialColor.a + ')';
       this.newColorDiv.style.backgroundColor = 'rgba(' + this.color.r + ',' + this.color.g + ',' + this.color.b + ',' + this.color.a + ')';
     }
-  }, {
-    key: '_setSize',
 
     /**
      * used by create to set the size of the canvas.
      * @private
      */
+  }, {
+    key: '_setSize',
     value: function _setSize() {
       this.colorPickerCanvas.style.width = '100%';
       this.colorPickerCanvas.style.height = '100%';
@@ -2237,14 +2322,14 @@ var ColorPicker = (function () {
       this.colorPickerCanvas.width = 289 * this.pixelRatio;
       this.colorPickerCanvas.height = 289 * this.pixelRatio;
     }
-  }, {
-    key: '_create',
 
     /**
      * create all dom elements
      * TODO: cleanup, lots of similar dom elements
      * @private
      */
+  }, {
+    key: '_create',
     value: function _create() {
       this.frame = document.createElement('div');
       this.frame.className = 'vis-color-picker';
@@ -2265,10 +2350,10 @@ var ColorPicker = (function () {
         noCanvas.innerHTML = 'Error: your browser does not support HTML canvas';
         this.colorPickerCanvas.appendChild(noCanvas);
       } else {
-        var ctx = this.colorPickerCanvas.getContext('2d');
+        var ctx = this.colorPickerCanvas.getContext("2d");
         this.pixelRatio = (window.devicePixelRatio || 1) / (ctx.webkitBackingStorePixelRatio || ctx.mozBackingStorePixelRatio || ctx.msBackingStorePixelRatio || ctx.oBackingStorePixelRatio || ctx.backingStorePixelRatio || 1);
 
-        this.colorPickerCanvas.getContext('2d').setTransform(this.pixelRatio, 0, 0, this.pixelRatio, 0, 0);
+        this.colorPickerCanvas.getContext("2d").setTransform(this.pixelRatio, 0, 0, this.pixelRatio, 0, 0);
       }
 
       this.colorPickerDiv.className = 'vis-color';
@@ -2317,39 +2402,39 @@ var ColorPicker = (function () {
         me._setBrightness(this.value);
       };
 
-      this.brightnessLabel = document.createElement('div');
-      this.brightnessLabel.className = 'vis-label vis-brightness';
+      this.brightnessLabel = document.createElement("div");
+      this.brightnessLabel.className = "vis-label vis-brightness";
       this.brightnessLabel.innerHTML = 'brightness:';
 
-      this.opacityLabel = document.createElement('div');
-      this.opacityLabel.className = 'vis-label vis-opacity';
+      this.opacityLabel = document.createElement("div");
+      this.opacityLabel.className = "vis-label vis-opacity";
       this.opacityLabel.innerHTML = 'opacity:';
 
-      this.newColorDiv = document.createElement('div');
-      this.newColorDiv.className = 'vis-new-color';
+      this.newColorDiv = document.createElement("div");
+      this.newColorDiv.className = "vis-new-color";
       this.newColorDiv.innerHTML = 'new';
 
-      this.initialColorDiv = document.createElement('div');
-      this.initialColorDiv.className = 'vis-initial-color';
+      this.initialColorDiv = document.createElement("div");
+      this.initialColorDiv.className = "vis-initial-color";
       this.initialColorDiv.innerHTML = 'initial';
 
-      this.cancelButton = document.createElement('div');
-      this.cancelButton.className = 'vis-button vis-cancel';
+      this.cancelButton = document.createElement("div");
+      this.cancelButton.className = "vis-button vis-cancel";
       this.cancelButton.innerHTML = 'cancel';
       this.cancelButton.onclick = this._hide.bind(this, false);
 
-      this.applyButton = document.createElement('div');
-      this.applyButton.className = 'vis-button vis-apply';
+      this.applyButton = document.createElement("div");
+      this.applyButton.className = "vis-button vis-apply";
       this.applyButton.innerHTML = 'apply';
       this.applyButton.onclick = this._apply.bind(this);
 
-      this.saveButton = document.createElement('div');
-      this.saveButton.className = 'vis-button vis-save';
+      this.saveButton = document.createElement("div");
+      this.saveButton.className = "vis-button vis-save";
       this.saveButton.innerHTML = 'save';
       this.saveButton.onclick = this._save.bind(this);
 
-      this.loadButton = document.createElement('div');
-      this.loadButton.className = 'vis-button vis-load';
+      this.loadButton = document.createElement("div");
+      this.loadButton.className = "vis-button vis-load";
       this.loadButton.innerHTML = 'load last';
       this.loadButton.onclick = this._loadLast.bind(this);
 
@@ -2367,15 +2452,15 @@ var ColorPicker = (function () {
       this.frame.appendChild(this.saveButton);
       this.frame.appendChild(this.loadButton);
     }
-  }, {
-    key: '_bindHammer',
 
     /**
      * bind hammer to the color picker
      * @private
      */
+  }, {
+    key: '_bindHammer',
     value: function _bindHammer() {
-      var _this = this;
+      var _this2 = this;
 
       this.drag = {};
       this.pinch = {};
@@ -2383,28 +2468,28 @@ var ColorPicker = (function () {
       this.hammer.get('pinch').set({ enable: true });
 
       hammerUtil.onTouch(this.hammer, function (event) {
-        _this._moveSelector(event);
+        _this2._moveSelector(event);
       });
       this.hammer.on('tap', function (event) {
-        _this._moveSelector(event);
+        _this2._moveSelector(event);
       });
       this.hammer.on('panstart', function (event) {
-        _this._moveSelector(event);
+        _this2._moveSelector(event);
       });
       this.hammer.on('panmove', function (event) {
-        _this._moveSelector(event);
+        _this2._moveSelector(event);
       });
       this.hammer.on('panend', function (event) {
-        _this._moveSelector(event);
+        _this2._moveSelector(event);
       });
     }
-  }, {
-    key: '_generateHueCircle',
 
     /**
      * generate the hue circle. This is relatively heavy (200ms) and is done only once on the first time it is shown.
      * @private
      */
+  }, {
+    key: '_generateHueCircle',
     value: function _generateHueCircle() {
       if (this.generated === false) {
         var ctx = this.colorPickerCanvas.getContext('2d');
@@ -2446,8 +2531,6 @@ var ColorPicker = (function () {
       }
       this.generated = true;
     }
-  }, {
-    key: '_moveSelector',
 
     /**
      * move the selector. This is called by hammer functions.
@@ -2455,6 +2538,8 @@ var ColorPicker = (function () {
      * @param event
      * @private
      */
+  }, {
+    key: '_moveSelector',
     value: function _moveSelector(event) {
       var rect = this.colorPickerDiv.getBoundingClientRect();
       var left = event.center.x - rect.left;
@@ -2505,31 +2590,15 @@ Object.defineProperty(exports, '__esModule', {
   value: true
 });
 
-var _createClass = (function () {
-  function defineProperties(target, props) {
-    for (var i = 0; i < props.length; i++) {
-      var descriptor = props[i];descriptor.enumerable = descriptor.enumerable || false;descriptor.configurable = true;if ('value' in descriptor) descriptor.writable = true;Object.defineProperty(target, descriptor.key, descriptor);
-    }
-  }return function (Constructor, protoProps, staticProps) {
-    if (protoProps) defineProperties(Constructor.prototype, protoProps);if (staticProps) defineProperties(Constructor, staticProps);return Constructor;
-  };
-})();
+var _createClass = (function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ('value' in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; })();
 
-function _interopRequireDefault(obj) {
-  return obj && obj.__esModule ? obj : { 'default': obj };
-}
+function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { 'default': obj }; }
 
-function _classCallCheck(instance, Constructor) {
-  if (!(instance instanceof Constructor)) {
-    throw new TypeError('Cannot call a class as a function');
-  }
-}
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError('Cannot call a class as a function'); } }
 
 var _ColorPicker = require('./ColorPicker');
 
 var _ColorPicker2 = _interopRequireDefault(_ColorPicker);
-
-var util = require('../util');
 
 /**
  * The way this works is for all properties of this.possible options, you can supply the property name in any form to list the options.
@@ -2545,6 +2614,7 @@ var util = require('../util');
  * @param configureOptions    | the fully configured and predefined options set found in allOptions.js
  * @param pixelRatio          | canvas pixel ratio
  */
+var util = require('../util');
 
 var Configurator = (function () {
   function Configurator(parentModule, defaultContainer, configureOptions) {
@@ -2558,6 +2628,8 @@ var Configurator = (function () {
     this.allowCreation = false;
 
     this.options = {};
+    this.initialized = false;
+    this.popupCounter = 0;
     this.defaultOptions = {
       enabled: false,
       filter: true,
@@ -2569,21 +2641,28 @@ var Configurator = (function () {
     this.configureOptions = configureOptions;
     this.moduleOptions = {};
     this.domElements = [];
+    this.popupDiv = {};
+    this.popupLimit = 5;
+    this.popupHistory = {};
     this.colorPicker = new _ColorPicker2['default'](pixelRatio);
     this.wrapper = undefined;
   }
 
+  /**
+   * refresh all options.
+   * Because all modules parse their options by themselves, we just use their options. We copy them here.
+   *
+   * @param options
+   */
+
   _createClass(Configurator, [{
     key: 'setOptions',
-
-    /**
-     * refresh all options.
-     * Because all modules parse their options by themselves, we just use their options. We copy them here.
-     *
-     * @param options
-     */
     value: function setOptions(options) {
       if (options !== undefined) {
+        // reset the popup history because the indices may have been changed.
+        this.popupHistory = {};
+        this._removePopup();
+
         var enabled = true;
         if (typeof options === 'string') {
           this.options.filter = options;
@@ -2629,13 +2708,13 @@ var Configurator = (function () {
         this._create();
       }
     }
-  }, {
-    key: '_create',
 
     /**
      * Create all DOM elements
      * @private
      */
+  }, {
+    key: '_create',
     value: function _create() {
       var _this = this;
 
@@ -2666,7 +2745,7 @@ var Configurator = (function () {
             // a header for the category
             this._makeHeader(option);
 
-            // get the suboptions
+            // get the sub options
             this._handleObject(this.configureOptions[option], [option]);
           }
           counter++;
@@ -2676,20 +2755,20 @@ var Configurator = (function () {
       if (this.options.showButton === true) {
         (function () {
           var generateButton = document.createElement('div');
-          generateButton.className = 'vis-network-configuration button';
+          generateButton.className = 'vis-configuration vis-config-button';
           generateButton.innerHTML = 'generate options';
           generateButton.onclick = function () {
             _this._printOptions();
           };
           generateButton.onmouseover = function () {
-            generateButton.className = 'vis-network-configuration button hover';
+            generateButton.className = 'vis-configuration vis-config-button hover';
           };
           generateButton.onmouseout = function () {
-            generateButton.className = 'vis-network-configuration button';
+            generateButton.className = 'vis-configuration vis-config-button';
           };
 
           _this.optionsContainer = document.createElement('div');
-          _this.optionsContainer.className = 'vis-network-configuration vis-option-container';
+          _this.optionsContainer.className = 'vis-configuration vis-config-option-container';
 
           _this.domElements.push(_this.optionsContainer);
           _this.domElements.push(generateButton);
@@ -2697,30 +2776,32 @@ var Configurator = (function () {
       }
 
       this._push();
-      this.colorPicker.insertTo(this.container);
+      //~ this.colorPicker.insertTo(this.container);
     }
-  }, {
-    key: '_push',
 
     /**
      * draw all DOM elements on the screen
      * @private
      */
+  }, {
+    key: '_push',
     value: function _push() {
       this.wrapper = document.createElement('div');
-      this.wrapper.className = 'vis-network-configuration-wrapper';
+      this.wrapper.className = 'vis-configuration-wrapper';
       this.container.appendChild(this.wrapper);
       for (var i = 0; i < this.domElements.length; i++) {
         this.wrapper.appendChild(this.domElements[i]);
       }
+
+      this._showPopupIfNeeded();
     }
-  }, {
-    key: '_clean',
 
     /**
      * delete all DOM elements
      * @private
      */
+  }, {
+    key: '_clean',
     value: function _clean() {
       for (var i = 0; i < this.domElements.length; i++) {
         this.wrapper.removeChild(this.domElements[i]);
@@ -2731,9 +2812,9 @@ var Configurator = (function () {
         this.wrapper = undefined;
       }
       this.domElements = [];
+
+      this._removePopup();
     }
-  }, {
-    key: '_getValue',
 
     /**
      * get the value from the actualOptions if it exists
@@ -2741,6 +2822,8 @@ var Configurator = (function () {
      * @returns {*}
      * @private
      */
+  }, {
+    key: '_getValue',
     value: function _getValue(path) {
       var base = this.moduleOptions;
       for (var i = 0; i < path.length; i++) {
@@ -2753,8 +2836,6 @@ var Configurator = (function () {
       }
       return base;
     }
-  }, {
-    key: '_makeItem',
 
     /**
      * all option elements are wrapped in an item
@@ -2762,6 +2843,8 @@ var Configurator = (function () {
      * @param domElements
      * @private
      */
+  }, {
+    key: '_makeItem',
     value: function _makeItem(path) {
       var _arguments = arguments,
           _this2 = this;
@@ -2769,9 +2852,9 @@ var Configurator = (function () {
       if (this.allowCreation === true) {
         var _len, domElements, _key;
 
-        (function () {
+        var _ret2 = (function () {
           var item = document.createElement('div');
-          item.className = 'vis-network-configuration item s' + path.length;
+          item.className = 'vis-configuration vis-config-item vis-config-s' + path.length;
 
           for (_len = _arguments.length, domElements = Array(_len > 1 ? _len - 1 : 0), _key = 1; _key < _len; _key++) {
             domElements[_key - 1] = _arguments[_key];
@@ -2781,25 +2864,29 @@ var Configurator = (function () {
             item.appendChild(element);
           });
           _this2.domElements.push(item);
+          return {
+            v: _this2.domElements.length
+          };
         })();
+
+        if (typeof _ret2 === 'object') return _ret2.v;
       }
+      return 0;
     }
-  }, {
-    key: '_makeHeader',
 
     /**
      * header for major subjects
      * @param name
      * @private
      */
+  }, {
+    key: '_makeHeader',
     value: function _makeHeader(name) {
       var div = document.createElement('div');
-      div.className = 'vis-network-configuration header';
+      div.className = 'vis-configuration vis-config-header';
       div.innerHTML = name;
       this._makeItem([], div);
     }
-  }, {
-    key: '_makeLabel',
 
     /**
      * make a label, if it is an object label, it gets different styling.
@@ -2809,11 +2896,13 @@ var Configurator = (function () {
      * @returns {HTMLElement}
      * @private
      */
+  }, {
+    key: '_makeLabel',
     value: function _makeLabel(name, path) {
       var objectLabel = arguments.length <= 2 || arguments[2] === undefined ? false : arguments[2];
 
       var div = document.createElement('div');
-      div.className = 'vis-network-configuration label s' + path.length;
+      div.className = 'vis-configuration vis-config-label vis-config-s' + path.length;
       if (objectLabel === true) {
         div.innerHTML = '<i><b>' + name + ':</b></i>';
       } else {
@@ -2821,8 +2910,6 @@ var Configurator = (function () {
       }
       return div;
     }
-  }, {
-    key: '_makeDropdown',
 
     /**
      * make a dropdown list for multiple possible string optoins
@@ -2831,9 +2918,11 @@ var Configurator = (function () {
      * @param path
      * @private
      */
+  }, {
+    key: '_makeDropdown',
     value: function _makeDropdown(arr, value, path) {
       var select = document.createElement('select');
-      select.className = 'vis-network-configuration select';
+      select.className = 'vis-configuration vis-config-select';
       var selectedValue = 0;
       if (value !== undefined) {
         if (arr.indexOf(value) !== -1) {
@@ -2859,8 +2948,6 @@ var Configurator = (function () {
       var label = this._makeLabel(path[path.length - 1], path);
       this._makeItem(path, label, select);
     }
-  }, {
-    key: '_makeRange',
 
     /**
      * make a range object for numeric options
@@ -2869,13 +2956,15 @@ var Configurator = (function () {
      * @param path
      * @private
      */
+  }, {
+    key: '_makeRange',
     value: function _makeRange(arr, value, path) {
       var defaultValue = arr[0];
       var min = arr[1];
       var max = arr[2];
       var step = arr[3];
       var range = document.createElement('input');
-      range.className = 'vis-network-configuration range';
+      range.className = 'vis-configuration vis-config-range';
       try {
         range.type = 'range'; // not supported on IE9
         range.min = min;
@@ -2883,14 +2972,25 @@ var Configurator = (function () {
       } catch (err) {}
       range.step = step;
 
+      // set up the popup settings in case they are needed.
+      var popupString = '';
+      var popupValue = 0;
+
       if (value !== undefined) {
-        if (value < 0 && value * 2 < min) {
-          range.min = value * 2;
-        } else if (value * 0.1 < min) {
-          range.min = value / 10;
+        var factor = 1.20;
+        if (value < 0 && value * factor < min) {
+          range.min = Math.ceil(value * factor);
+          popupValue = range.min;
+          popupString = 'range increased';
+        } else if (value / factor < min) {
+          range.min = Math.ceil(value / factor);
+          popupValue = range.min;
+          popupString = 'range increased';
         }
-        if (value * 2 > max && max !== 1) {
-          range.max = value * 2;
+        if (value * factor > max && max !== 1) {
+          range.max = Math.ceil(value * factor);
+          popupValue = range.max;
+          popupString = 'range increased';
         }
         range.value = value;
       } else {
@@ -2898,7 +2998,7 @@ var Configurator = (function () {
       }
 
       var input = document.createElement('input');
-      input.className = 'vis-network-configuration rangeinput';
+      input.className = 'vis-configuration vis-config-rangeinput';
       input.value = range.value;
 
       var me = this;
@@ -2910,10 +3010,77 @@ var Configurator = (function () {
       };
 
       var label = this._makeLabel(path[path.length - 1], path);
-      this._makeItem(path, label, range, input);
+      var itemIndex = this._makeItem(path, label, range, input);
+
+      // if a popup is needed AND it has not been shown for this value, show it.
+      if (popupString !== '' && this.popupHistory[itemIndex] !== popupValue) {
+        this.popupHistory[itemIndex] = popupValue;
+        this._setupPopup(popupString, itemIndex);
+      }
     }
+
+    /**
+     * prepare the popup
+     * @param string
+     * @param index
+     * @private
+     */
   }, {
-    key: '_makeCheckbox',
+    key: '_setupPopup',
+    value: function _setupPopup(string, index) {
+      var _this3 = this;
+
+      if (this.initialized === true && this.allowCreation === true && this.popupCounter < this.popupLimit) {
+        var div = document.createElement("div");
+        div.id = "vis-configuration-popup";
+        div.className = "vis-configuration-popup";
+        div.innerHTML = string;
+        div.onclick = function () {
+          _this3._removePopup();
+        };
+        this.popupCounter += 1;
+        this.popupDiv = { html: div, index: index };
+      }
+    }
+
+    /**
+     * remove the popup from the dom
+     * @private
+     */
+  }, {
+    key: '_removePopup',
+    value: function _removePopup() {
+      if (this.popupDiv.html !== undefined) {
+        this.popupDiv.html.parentNode.removeChild(this.popupDiv.html);
+        clearTimeout(this.popupDiv.hideTimeout);
+        clearTimeout(this.popupDiv.deleteTimeout);
+        this.popupDiv = {};
+      }
+    }
+
+    /**
+     * Show the popup if it is needed.
+     * @private
+     */
+  }, {
+    key: '_showPopupIfNeeded',
+    value: function _showPopupIfNeeded() {
+      var _this4 = this;
+
+      if (this.popupDiv.html !== undefined) {
+        var correspondingElement = this.domElements[this.popupDiv.index];
+        var rect = correspondingElement.getBoundingClientRect();
+        this.popupDiv.html.style.left = rect.left + "px";
+        this.popupDiv.html.style.top = rect.top - 30 + "px"; // 30 is the height;
+        document.body.appendChild(this.popupDiv.html);
+        this.popupDiv.hideTimeout = setTimeout(function () {
+          _this4.popupDiv.html.style.opacity = 0;
+        }, 1500);
+        this.popupDiv.deleteTimeout = setTimeout(function () {
+          _this4._removePopup();
+        }, 1800);
+      }
+    }
 
     /**
      * make a checkbox for boolean options.
@@ -2922,10 +3089,12 @@ var Configurator = (function () {
      * @param path
      * @private
      */
+  }, {
+    key: '_makeCheckbox',
     value: function _makeCheckbox(defaultValue, value, path) {
       var checkbox = document.createElement('input');
       checkbox.type = 'checkbox';
-      checkbox.className = 'vis-network-configuration checkbox';
+      checkbox.className = 'vis-configuration vis-config-checkbox';
       checkbox.checked = defaultValue;
       if (value !== undefined) {
         checkbox.checked = value;
@@ -2948,8 +3117,6 @@ var Configurator = (function () {
       var label = this._makeLabel(path[path.length - 1], path);
       this._makeItem(path, label, checkbox);
     }
-  }, {
-    key: '_makeTextInput',
 
     /**
      * make a text input field for string options.
@@ -2958,10 +3125,12 @@ var Configurator = (function () {
      * @param path
      * @private
      */
+  }, {
+    key: '_makeTextInput',
     value: function _makeTextInput(defaultValue, value, path) {
       var checkbox = document.createElement('input');
       checkbox.type = 'text';
-      checkbox.className = 'vis-network-configuration text';
+      checkbox.className = 'vis-configuration vis-config-text';
       checkbox.value = value;
       if (value !== defaultValue) {
         this.changedOptions.push({ path: path, value: value });
@@ -2975,8 +3144,6 @@ var Configurator = (function () {
       var label = this._makeLabel(path[path.length - 1], path);
       this._makeItem(path, label, checkbox);
     }
-  }, {
-    key: '_makeColorField',
 
     /**
      * make a color field with a color picker for color fields
@@ -2985,30 +3152,30 @@ var Configurator = (function () {
      * @param path
      * @private
      */
+  }, {
+    key: '_makeColorField',
     value: function _makeColorField(arr, value, path) {
-      var _this3 = this;
+      var _this5 = this;
 
       var defaultColor = arr[1];
       var div = document.createElement('div');
       value = value === undefined ? defaultColor : value;
 
       if (value !== 'none') {
-        div.className = 'vis-network-configuration colorBlock';
+        div.className = 'vis-configuration vis-config-colorBlock';
         div.style.backgroundColor = value;
       } else {
-        div.className = 'vis-network-configuration colorBlock none';
+        div.className = 'vis-configuration vis-config-colorBlock none';
       }
 
       value = value === undefined ? defaultColor : value;
       div.onclick = function () {
-        _this3._showColorPicker(value, div, path);
+        _this5._showColorPicker(value, div, path);
       };
 
       var label = this._makeLabel(path[path.length - 1], path);
       this._makeItem(path, label, div);
     }
-  }, {
-    key: '_showColorPicker',
 
     /**
      * used by the color buttons to call the color picker.
@@ -3018,23 +3185,31 @@ var Configurator = (function () {
      * @param path
      * @private
      */
+  }, {
+    key: '_showColorPicker',
     value: function _showColorPicker(value, div, path) {
-      var _this4 = this;
+      var _this6 = this;
 
-      var rect = div.getBoundingClientRect();
-      var bodyRect = document.body.getBoundingClientRect();
-      var pickerX = rect.left + rect.width + 5;
-      var pickerY = rect.top - bodyRect.top + rect.height * 0.5;
-      this.colorPicker.show(pickerX, pickerY);
+      // clear the callback from this div
+      div.onclick = function () {};
+
+      this.colorPicker.insertTo(div);
+      this.colorPicker.show();
+
       this.colorPicker.setColor(value);
-      this.colorPicker.setCallback(function (color) {
+      this.colorPicker.setUpdateCallback(function (color) {
         var colorString = 'rgba(' + color.r + ',' + color.g + ',' + color.b + ',' + color.a + ')';
         div.style.backgroundColor = colorString;
-        _this4._update(colorString, path);
+        _this6._update(colorString, path);
+      });
+
+      // on close of the colorpicker, restore the callback.
+      this.colorPicker.setCloseCallback(function () {
+        div.onclick = function () {
+          _this6._showColorPicker(value, div, path);
+        };
       });
     }
-  }, {
-    key: '_handleObject',
 
     /**
      * parse an object and draw the correct items
@@ -3042,6 +3217,8 @@ var Configurator = (function () {
      * @param path
      * @private
      */
+  }, {
+    key: '_handleObject',
     value: function _handleObject(obj) {
       var path = arguments.length <= 1 || arguments[1] === undefined ? [] : arguments[1];
       var checkOnly = arguments.length <= 2 || arguments[2] === undefined ? false : arguments[2];
@@ -3112,8 +3289,6 @@ var Configurator = (function () {
       }
       return visibleInSet;
     }
-  }, {
-    key: '_handleArray',
 
     /**
      * handle the array type of option
@@ -3123,6 +3298,8 @@ var Configurator = (function () {
      * @param path
      * @private
      */
+  }, {
+    key: '_handleArray',
     value: function _handleArray(arr, value, path) {
       if (typeof arr[0] === 'string' && arr[0] === 'color') {
         this._makeColorField(arr, value, path);
@@ -3141,8 +3318,6 @@ var Configurator = (function () {
         }
       }
     }
-  }, {
-    key: '_update',
 
     /**
      * called to update the network with the new settings.
@@ -3150,8 +3325,15 @@ var Configurator = (function () {
      * @param path
      * @private
      */
+  }, {
+    key: '_update',
     value: function _update(value, path) {
       var options = this._constructOptions(value, path);
+
+      if (this.parent.body && this.parent.body.emitter && this.parent.body.emitter.emit) {
+        this.parent.body.emitter.emit("configChange", options);
+      }
+      this.initialized = true;
       this.parent.setOptions(options);
     }
   }, {
@@ -3209,21 +3391,9 @@ Object.defineProperty(exports, '__esModule', {
   value: true
 });
 
-var _createClass = (function () {
-  function defineProperties(target, props) {
-    for (var i = 0; i < props.length; i++) {
-      var descriptor = props[i];descriptor.enumerable = descriptor.enumerable || false;descriptor.configurable = true;if ('value' in descriptor) descriptor.writable = true;Object.defineProperty(target, descriptor.key, descriptor);
-    }
-  }return function (Constructor, protoProps, staticProps) {
-    if (protoProps) defineProperties(Constructor.prototype, protoProps);if (staticProps) defineProperties(Constructor, staticProps);return Constructor;
-  };
-})();
+var _createClass = (function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ('value' in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; })();
 
-function _classCallCheck(instance, Constructor) {
-  if (!(instance instanceof Constructor)) {
-    throw new TypeError('Cannot call a class as a function');
-  }
-}
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError('Cannot call a class as a function'); } }
 
 var util = require('../util');
 
@@ -3239,15 +3409,15 @@ var Validator = (function () {
     _classCallCheck(this, Validator);
   }
 
+  /**
+   * Main function to be called
+   * @param options
+   * @param subObject
+   * @returns {boolean}
+   */
+
   _createClass(Validator, null, [{
     key: 'validate',
-
-    /**
-     * Main function to be called
-     * @param options
-     * @param subObject
-     * @returns {boolean}
-     */
     value: function validate(options, referenceOptions, subObject) {
       errorFound = false;
       allOptions = referenceOptions;
@@ -3258,8 +3428,6 @@ var Validator = (function () {
       Validator.parse(options, usedOptions, []);
       return errorFound;
     }
-  }, {
-    key: 'parse',
 
     /**
      * Will traverse an object recursively and check every value
@@ -3267,6 +3435,8 @@ var Validator = (function () {
      * @param referenceOptions
      * @param path
      */
+  }, {
+    key: 'parse',
     value: function parse(options, referenceOptions, path) {
       for (var option in options) {
         if (options.hasOwnProperty(option)) {
@@ -3274,8 +3444,6 @@ var Validator = (function () {
         }
       }
     }
-  }, {
-    key: 'check',
 
     /**
      * Check every value. If the value is an object, call the parse function on that object.
@@ -3284,6 +3452,8 @@ var Validator = (function () {
      * @param referenceOptions
      * @param path
      */
+  }, {
+    key: 'check',
     value: function check(option, options, referenceOptions, path) {
       if (referenceOptions[option] === undefined && referenceOptions.__any__ === undefined) {
         Validator.getSuggestion(option, referenceOptions, path);
@@ -3305,8 +3475,6 @@ var Validator = (function () {
         }
       }
     }
-  }, {
-    key: 'checkFields',
 
     /**
      *
@@ -3317,6 +3485,8 @@ var Validator = (function () {
      * @param {String}  refOptionType       | This is the type object from the reference options
      * @param {Array}   path      | where in the object is the option
      */
+  }, {
+    key: 'checkFields',
     value: function checkFields(option, options, referenceOptions, referenceOption, refOptionObj, path) {
       var optionType = Validator.getType(options[option]);
       var refOptionType = refOptionObj[optionType];
@@ -3326,11 +3496,11 @@ var Validator = (function () {
           if (refOptionType.indexOf(options[option]) === -1) {
             console.log('%cInvalid option detected in "' + option + '".' + ' Allowed values are:' + Validator.print(refOptionType) + ' not "' + options[option] + '". ' + Validator.printLocation(path, option), printStyle);
             errorFound = true;
-          } else if (optionType === 'object' && referenceOption !== '__any__') {
+          } else if (optionType === 'object' && referenceOption !== "__any__") {
             path = util.copyAndExtendArray(path, option);
             Validator.parse(options[option], referenceOptions[referenceOption], path);
           }
-        } else if (optionType === 'object' && referenceOption !== '__any__') {
+        } else if (optionType === 'object' && referenceOption !== "__any__") {
           path = util.copyAndExtendArray(path, option);
           Validator.parse(options[option], referenceOptions[referenceOption], path);
         }
@@ -3403,8 +3573,6 @@ var Validator = (function () {
 
       errorFound = true;
     }
-  }, {
-    key: 'findInOptions',
 
     /**
      * traverse the options in search for a match.
@@ -3414,6 +3582,8 @@ var Validator = (function () {
      * @param recursive
      * @returns {{closestMatch: string, path: Array, distance: number}}
      */
+  }, {
+    key: 'findInOptions',
     value: function findInOptions(option, options, path) {
       var recursive = arguments.length <= 3 || arguments[3] === undefined ? false : arguments[3];
 
@@ -3473,10 +3643,8 @@ var Validator = (function () {
   }, {
     key: 'print',
     value: function print(options) {
-      return JSON.stringify(options).replace(/(\")|(\[)|(\])|(,"__type__")/g, '').replace(/(\,)/g, ', ');
+      return JSON.stringify(options).replace(/(\")|(\[)|(\])|(,"__type__")/g, "").replace(/(\,)/g, ', ');
     }
-  }, {
-    key: 'levenshteinDistance',
 
     // Compute the edit distance between the two given strings
     // http://en.wikibooks.org/wiki/Algorithm_Implementation/Strings/Levenshtein_distance#JavaScript
@@ -3486,6 +3654,8 @@ var Validator = (function () {
       The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
       THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
      */
+  }, {
+    key: 'levenshteinDistance',
     value: function levenshteinDistance(a, b) {
       if (a.length === 0) return b.length;
       if (b.length === 0) return a.length;
@@ -3622,12 +3792,16 @@ Core.prototype._create = function (container) {
   this.dom.rightContainer.appendChild(this.dom.shadowTopRight);
   this.dom.rightContainer.appendChild(this.dom.shadowBottomRight);
 
-  this.on('rangechange', this.redraw.bind(this));
+  this.on('rangechange', (function () {
+    if (this.initialDrawDone === true) {
+      this._redraw(); // this allows overriding the _redraw method
+    }
+  }).bind(this));
   this.on('touch', this._onTouch.bind(this));
   this.on('pan', this._onDrag.bind(this));
 
   var me = this;
-  this.on('change', function (properties) {
+  this.on('_change', function (properties) {
     if (properties && properties.queue == true) {
       // redraw once on next tick
       if (!me._redrawTimer) {
@@ -3645,8 +3819,9 @@ Core.prototype._create = function (container) {
   // create event listeners for all interesting events, these events will be
   // emitted via emitter
   this.hammer = new Hammer(this.dom.root);
-  this.hammer.get('pinch').set({ enable: true });
-  this.hammer.get('pan').set({ threshold: 5, direction: 30 }); // 30 is ALL_DIRECTIONS in hammer.
+  var pinchRecognizer = this.hammer.get('pinch').set({ enable: true });
+  hammerUtil.disablePreventDefaultVertically(pinchRecognizer);
+  this.hammer.get('pan').set({ threshold: 5, direction: Hammer.DIRECTION_HORIZONTAL });
   this.listeners = {};
 
   var events = ['tap', 'doubletap', 'press', 'pinch', 'pan', 'panstart', 'panmove', 'panend'
@@ -3707,6 +3882,7 @@ Core.prototype._create = function (container) {
   this.touch = {};
 
   this.redrawCount = 0;
+  this.initialDrawDone = false;
 
   // attach the root panel to the provided container
   if (!container) throw new Error('No container provided');
@@ -3741,9 +3917,18 @@ Core.prototype._create = function (container) {
 Core.prototype.setOptions = function (options) {
   if (options) {
     // copy the known options
-    var fields = ['width', 'height', 'minHeight', 'maxHeight', 'autoResize', 'start', 'end', 'clickToUse', 'dataAttributes', 'hiddenDates'];
+    var fields = ['width', 'height', 'minHeight', 'maxHeight', 'autoResize', 'start', 'end', 'clickToUse', 'dataAttributes', 'hiddenDates', 'locale', 'locales', 'moment', 'rtl', 'throttleRedraw'];
     util.selectiveExtend(fields, this.options, options);
 
+    if (this.options.rtl) {
+      var contentContainer = this.dom.leftContainer;
+      this.dom.leftContainer = this.dom.rightContainer;
+      this.dom.rightContainer = contentContainer;
+      this.dom.container.style.direction = "rtl";
+      this.dom.backgroundVertical.className = 'vis-panel vis-background vis-vertical-rtl';
+    }
+
+    this.options.orientation = { item: undefined, axis: undefined };
     if ('orientation' in options) {
       if (typeof options.orientation === 'string') {
         this.options.orientation = {
@@ -3789,7 +3974,7 @@ Core.prototype.setOptions = function (options) {
     }
 
     if ('hiddenDates' in this.options) {
-      DateUtil.convertHiddenOptions(this.body, this.options.hiddenDates);
+      DateUtil.convertHiddenOptions(this.options.moment, this.body, this.options.hiddenDates);
     }
 
     if ('clickToUse' in options) {
@@ -3834,8 +4019,14 @@ Core.prototype.setOptions = function (options) {
     this.configurator.setModuleOptions({ global: appliedOptions });
   }
 
-  // redraw everything
-  this._redraw();
+  // override redraw with a throttled version
+  if (!this._origRedraw) {
+    this._origRedraw = this._redraw.bind(this);
+    this._redraw = util.throttle(this._origRedraw, this.options.throttleRedraw);
+  } else {
+    // Not the initial run: redraw everything
+    this._redraw();
+  }
 };
 
 /**
@@ -3925,6 +4116,34 @@ Core.prototype.getCustomTime = function (id) {
 };
 
 /**
+ * Set a custom title for the custom time bar.
+ * @param {String} [title] Custom title
+ * @param {number} [id=undefined]    Id of the custom time bar.
+ */
+Core.prototype.setCustomTimeTitle = function (title, id) {
+  var customTimes = this.customTimes.filter(function (component) {
+    return component.options.id === id;
+  });
+
+  if (customTimes.length === 0) {
+    throw new Error('No custom time bar found with id ' + JSON.stringify(id));
+  }
+  if (customTimes.length > 0) {
+    return customTimes[0].setCustomTitle(title);
+  }
+};
+
+/**
+ * Retrieve meta information from an event.
+ * Should be overridden by classes extending Core
+ * @param {Event} event
+ * @return {Object} An object with related information.
+ */
+Core.prototype.getEventProperties = function (event) {
+  return { event: event };
+};
+
+/**
  * Add custom vertical bar
  * @param {Date | String | Number} [time]  A Date, unix timestamp, or
  *                                         ISO date string. Time point where
@@ -3944,14 +4163,14 @@ Core.prototype.addCustomTime = function (time, id) {
     throw new Error('A custom time with id ' + JSON.stringify(id) + ' already exists');
   }
 
-  var customTime = new CustomTime(this.body, {
+  var customTime = new CustomTime(this.body, util.extend({}, this.options, {
     time: timestamp,
     id: id
-  });
+  }));
 
   this.customTimes.push(customTime);
   this.components.push(customTime);
-  this.redraw();
+  this._redraw();
 
   return id;
 };
@@ -4007,7 +4226,6 @@ Core.prototype.fit = function (options) {
   var interval = range.max - range.min;
   var min = new Date(range.min.valueOf() - interval * 0.01);
   var max = new Date(range.max.valueOf() + interval * 0.01);
-
   var animation = options && options.animation !== undefined ? options.animation : true;
   this.range.setRange(min, max, animation);
 };
@@ -4091,6 +4309,8 @@ Core.prototype.getWindow = function () {
 
 /**
  * Force a redraw. Can be overridden by implementations of Core
+ *
+ * Note: this function will be overridden on construction with a trottled version
  */
 Core.prototype.redraw = function () {
   this._redraw();
@@ -4102,14 +4322,15 @@ Core.prototype.redraw = function () {
  * @protected
  */
 Core.prototype._redraw = function () {
+  this.redrawCount++;
   var resized = false;
   var options = this.options;
   var props = this.props;
   var dom = this.dom;
 
-  if (!dom) return; // when destroyed
+  if (!dom || !dom.container || dom.root.offsetWidth == 0) return; // when destroyed, or invisible
 
-  DateUtil.updateHiddenDates(this.body, this.options.hiddenDates);
+  DateUtil.updateHiddenDates(this.options.moment, this.body, this.options.hiddenDates);
 
   // update class names
   if (options.orientation == 'top') {
@@ -4239,21 +4460,31 @@ Core.prototype._redraw = function () {
   dom.shadowTopRight.style.visibility = visibilityTop;
   dom.shadowBottomRight.style.visibility = visibilityBottom;
 
+  // enable/disable vertical panning
+  var contentsOverflow = this.props.center.height > this.props.centerContainer.height;
+  this.hammer.get('pan').set({
+    direction: contentsOverflow ? Hammer.DIRECTION_ALL : Hammer.DIRECTION_HORIZONTAL
+  });
+
   // redraw all components
   this.components.forEach(function (component) {
     resized = component.redraw() || resized;
   });
+  var MAX_REDRAW = 5;
   if (resized) {
-    // keep repainting until all sizes are settled
-    var MAX_REDRAWS = 3; // maximum number of consecutive redraws
-    if (this.redrawCount < MAX_REDRAWS) {
-      this.redrawCount++;
-      this._redraw();
+    if (this.redrawCount < MAX_REDRAW) {
+      this.body.emitter.emit('_change');
+      return;
     } else {
       console.log('WARNING: infinite loop in redraw?');
     }
+  } else {
     this.redrawCount = 0;
   }
+  this.initialDrawDone = true;
+
+  //Emit public 'changed' event for UI updates, see issue #1592
+  this.body.emitter.emit("changed");
 };
 
 // TODO: deprecated since version 1.1.0, remove some day
@@ -4378,13 +4609,19 @@ Core.prototype._startAutoResize = function () {
         me.props.lastWidth = me.dom.root.offsetWidth;
         me.props.lastHeight = me.dom.root.offsetHeight;
 
-        me.emit('change');
+        me.body.emitter.emit('_change');
       }
     }
   };
 
   // add event listener to window resize
   util.addEventListener(window, 'resize', this._onResize);
+
+  //Prevent initial unnecessary redraw
+  if (me.dom.root) {
+    me.props.lastWidth = me.dom.root.offsetWidth;
+    me.props.lastHeight = me.dom.root.offsetHeight;
+  }
 
   this.watchTimer = setInterval(this._onResize, 1000);
 };
@@ -4400,8 +4637,10 @@ Core.prototype._stopAutoResize = function () {
   }
 
   // remove event listener on window.resize
-  util.removeEventListener(window, 'resize', this._onResize);
-  this._onResize = null;
+  if (this._onResize) {
+    util.removeEventListener(window, 'resize', this._onResize);
+    this._onResize = null;
+  }
 };
 
 /**
@@ -4439,8 +4678,7 @@ Core.prototype._onDrag = function (event) {
   var newScrollTop = this._setScrollTop(this.touch.initialScrollTop + delta);
 
   if (newScrollTop != oldScrollTop) {
-    this._redraw(); // TODO: this causes two redraws when dragging, the other is triggered by rangechange already
-    this.emit('verticalDrag');
+    this.emit("verticalDrag");
   }
 };
 
@@ -4501,16 +4739,21 @@ Core.prototype._createConfigurator = function () {
 module.exports = Core;
 
 },{"../DataSet":2,"../DataView":3,"../hammerUtil":5,"../module/hammer":6,"../shared/Activator":9,"../util":33,"./DateUtil":14,"./Range":15,"./component/CustomTime":22,"./component/ItemSet":24,"./component/TimeAxis":25,"emitter-component":34}],14:[function(require,module,exports){
-"use strict";
-
-var moment = require("../module/moment");
 
 /**
  * used in Core to convert the options into a volatile variable
  * 
- * @param Core
+ * @param {function} moment
+ * @param {Object} body
+ * @param {Array | Object} hiddenDates
  */
-exports.convertHiddenOptions = function (body, hiddenDates) {
+"use strict";
+
+exports.convertHiddenOptions = function (moment, body, hiddenDates) {
+  if (hiddenDates && !Array.isArray(hiddenDates)) {
+    return exports.convertHiddenOptions(moment, body, [hiddenDates]);
+  }
+
   body.hiddenDates = [];
   if (hiddenDates) {
     if (Array.isArray(hiddenDates) == true) {
@@ -4531,12 +4774,17 @@ exports.convertHiddenOptions = function (body, hiddenDates) {
 
 /**
  * create new entrees for the repeating hidden dates
- * @param body
- * @param hiddenDates
+ * @param {function} moment
+ * @param {Object} body
+ * @param {Array | Object} hiddenDates
  */
-exports.updateHiddenDates = function (body, hiddenDates) {
+exports.updateHiddenDates = function (moment, body, hiddenDates) {
+  if (hiddenDates && !Array.isArray(hiddenDates)) {
+    return exports.updateHiddenDates(moment, body, [hiddenDates]);
+  }
+
   if (hiddenDates && body.domProps.centerContainer.width !== undefined) {
-    exports.convertHiddenOptions(body, hiddenDates);
+    exports.convertHiddenOptions(moment, body, hiddenDates);
 
     var start = moment(body.range.start);
     var end = moment(body.range.end);
@@ -4569,16 +4817,16 @@ exports.updateHiddenDates = function (body, hiddenDates) {
               }
               startDate.dayOfYear(start.dayOfYear());
               startDate.year(start.year());
-              startDate.subtract(7, "days");
+              startDate.subtract(7, 'days');
 
               endDate.dayOfYear(start.dayOfYear());
               endDate.year(start.year());
-              endDate.subtract(7 - offset, "days");
+              endDate.subtract(7 - offset, 'days');
 
-              runUntil.add(1, "weeks");
+              runUntil.add(1, 'weeks');
               break;
             case "weekly":
-              var dayOffset = endDate.diff(startDate, "days");
+              var dayOffset = endDate.diff(startDate, 'days');
               var day = startDate.day();
 
               // set the start date to the range.start
@@ -4590,12 +4838,12 @@ exports.updateHiddenDates = function (body, hiddenDates) {
               // force
               startDate.day(day);
               endDate.day(day);
-              endDate.add(dayOffset, "days");
+              endDate.add(dayOffset, 'days');
 
-              startDate.subtract(1, "weeks");
-              endDate.subtract(1, "weeks");
+              startDate.subtract(1, 'weeks');
+              endDate.subtract(1, 'weeks');
 
-              runUntil.add(1, "weeks");
+              runUntil.add(1, 'weeks');
               break;
             case "monthly":
               if (startDate.month() != endDate.month()) {
@@ -4603,26 +4851,26 @@ exports.updateHiddenDates = function (body, hiddenDates) {
               }
               startDate.month(start.month());
               startDate.year(start.year());
-              startDate.subtract(1, "months");
+              startDate.subtract(1, 'months');
 
               endDate.month(start.month());
               endDate.year(start.year());
-              endDate.subtract(1, "months");
-              endDate.add(offset, "months");
+              endDate.subtract(1, 'months');
+              endDate.add(offset, 'months');
 
-              runUntil.add(1, "months");
+              runUntil.add(1, 'months');
               break;
             case "yearly":
               if (startDate.year() != endDate.year()) {
                 offset = 1;
               }
               startDate.year(start.year());
-              startDate.subtract(1, "years");
+              startDate.subtract(1, 'years');
               endDate.year(start.year());
-              endDate.subtract(1, "years");
-              endDate.add(offset, "years");
+              endDate.subtract(1, 'years');
+              endDate.add(offset, 'years');
 
-              runUntil.add(1, "years");
+              runUntil.add(1, 'years');
               break;
             default:
               console.log("Wrong repeat format, allowed are: daily, weekly, monthly, yearly. Given:", hiddenDates[i].repeat);
@@ -4632,20 +4880,20 @@ exports.updateHiddenDates = function (body, hiddenDates) {
             body.hiddenDates.push({ start: startDate.valueOf(), end: endDate.valueOf() });
             switch (hiddenDates[i].repeat) {
               case "daily":
-                startDate.add(1, "days");
-                endDate.add(1, "days");
+                startDate.add(1, 'days');
+                endDate.add(1, 'days');
                 break;
               case "weekly":
-                startDate.add(1, "weeks");
-                endDate.add(1, "weeks");
+                startDate.add(1, 'weeks');
+                endDate.add(1, 'weeks');
                 break;
               case "monthly":
-                startDate.add(1, "months");
-                endDate.add(1, "months");
+                startDate.add(1, 'months');
+                endDate.add(1, 'months');
                 break;
               case "yearly":
-                startDate.add(1, "y");
-                endDate.add(1, "y");
+                startDate.add(1, 'y');
+                endDate.add(1, 'y');
                 break;
               default:
                 console.log("Wrong repeat format, allowed are: daily, weekly, monthly, yearly. Given:", hiddenDates[i].repeat);
@@ -4692,14 +4940,14 @@ exports.removeDuplicates = function (body) {
         }
         // j start inside i
         else if (hiddenDates[j].start >= hiddenDates[i].start && hiddenDates[j].start <= hiddenDates[i].end) {
-          hiddenDates[i].end = hiddenDates[j].end;
-          hiddenDates[j].remove = true;
-        }
-        // j end inside i
-        else if (hiddenDates[j].end >= hiddenDates[i].start && hiddenDates[j].end <= hiddenDates[i].end) {
-          hiddenDates[i].start = hiddenDates[j].start;
-          hiddenDates[j].remove = true;
-        }
+            hiddenDates[i].end = hiddenDates[j].end;
+            hiddenDates[j].remove = true;
+          }
+          // j end inside i
+          else if (hiddenDates[j].end >= hiddenDates[i].start && hiddenDates[j].end <= hiddenDates[i].end) {
+              hiddenDates[i].start = hiddenDates[j].start;
+              hiddenDates[j].remove = true;
+            }
       }
     }
   }
@@ -4724,10 +4972,11 @@ exports.printDates = function (dates) {
 
 /**
  * Used in TimeStep to avoid the hidden times.
- * @param timeStep
+ * @param {function} moment
+ * @param {TimeStep} timeStep
  * @param previousTime
  */
-exports.stepOverHiddenDates = function (timeStep, previousTime) {
+exports.stepOverHiddenDates = function (moment, timeStep, previousTime) {
   var stepInHidden = false;
   var currentValue = timeStep.current.valueOf();
   for (var i = 0; i < timeStep.hiddenDates.length; i++) {
@@ -4751,7 +5000,7 @@ exports.stepOverHiddenDates = function (timeStep, previousTime) {
       timeStep.switchedDay = true;
     }
 
-    timeStep.current = newValue.toDate();
+    timeStep.current = newValue;
   }
 };
 
@@ -4796,7 +5045,7 @@ exports.toScreen = function (Core, time, width) {
     }
 
     var duration = exports.getHiddenDurationBetween(Core.body.hiddenDates, Core.range.start, Core.range.end);
-    time = exports.correctTimeForHidden(Core.body.hiddenDates, Core.range, time);
+    time = exports.correctTimeForHidden(Core.options.moment, Core.body.hiddenDates, Core.range, time);
 
     var conversion = Core.range.conversion(width, duration);
     return (time.valueOf() - conversion.offset) * conversion.scale;
@@ -4848,18 +5097,19 @@ exports.getHiddenDurationBetween = function (hiddenDates, start, end) {
 
 /**
  * Support function
+ * @param moment
  * @param hiddenDates
  * @param range
  * @param time
  * @returns {{duration: number, time: *, offset: number}}
  */
-exports.correctTimeForHidden = function (hiddenDates, range, time) {
+exports.correctTimeForHidden = function (moment, hiddenDates, range, time) {
   time = moment(time).toDate().valueOf();
-  time -= exports.getHiddenDurationBefore(hiddenDates, range, time);
+  time -= exports.getHiddenDurationBefore(moment, hiddenDates, range, time);
   return time;
 };
 
-exports.getHiddenDurationBefore = function (hiddenDates, range, time) {
+exports.getHiddenDurationBefore = function (moment, hiddenDates, range, time) {
   var timeOffset = 0;
   time = moment(time).toDate().valueOf();
 
@@ -4957,7 +5207,7 @@ exports.isHidden = function (time, hiddenDates) {
   return { hidden: false, startDate: startDate, endDate: endDate };
 };
 
-},{"../module/moment":7}],15:[function(require,module,exports){
+},{}],15:[function(require,module,exports){
 'use strict';
 
 var util = require('../util');
@@ -4987,8 +5237,10 @@ function Range(body, options) {
 
   // default options
   this.defaultOptions = {
+    rtl: false,
     start: null,
     end: null,
+    moment: moment,
     direction: 'horizontal', // 'horizontal' or 'vertical'
     moveable: true,
     zoomable: true,
@@ -4998,7 +5250,6 @@ function Range(body, options) {
     zoomMax: 1000 * 60 * 60 * 24 * 365 * 10000 // milliseconds
   };
   this.options = util.extend({}, this.defaultOptions);
-
   this.props = {
     touch: {}
   };
@@ -5040,7 +5291,7 @@ Range.prototype = new Component();
 Range.prototype.setOptions = function (options) {
   if (options) {
     // copy the options that we know
-    var fields = ['direction', 'min', 'max', 'zoomMin', 'zoomMax', 'moveable', 'zoomable', 'activate', 'hiddenDates'];
+    var fields = ['direction', 'min', 'max', 'zoomMin', 'zoomMax', 'moveable', 'zoomable', 'moment', 'activate', 'hiddenDates', 'zoomKey', 'rtl'];
     util.selectiveExtend(fields, this.options, options);
 
     if ('start' in options || 'end' in options) {
@@ -5106,7 +5357,7 @@ Range.prototype.setRange = function (start, end, animation, byUser) {
         var e = done || finalEnd === null ? finalEnd : initEnd + (finalEnd - initEnd) * ease;
 
         changed = me._applyRange(s, e);
-        DateUtil.updateHiddenDates(me.body, me.options.hiddenDates);
+        DateUtil.updateHiddenDates(me.options.moment, me.body, me.options.hiddenDates);
         anyChanged = anyChanged || changed;
         if (changed) {
           me.body.emitter.emit('rangechange', { start: new Date(me.start), end: new Date(me.end), byUser: byUser });
@@ -5127,7 +5378,7 @@ Range.prototype.setRange = function (start, end, animation, byUser) {
     return next();
   } else {
     var changed = this._applyRange(finalStart, finalEnd);
-    DateUtil.updateHiddenDates(this.body, this.options.hiddenDates);
+    DateUtil.updateHiddenDates(this.options.moment, this.body, this.options.hiddenDates);
     if (changed) {
       var params = { start: new Date(this.start), end: new Date(this.end), byUser: byUser };
       this.body.emitter.emit('rangechange', params);
@@ -5315,8 +5566,12 @@ Range.conversion = function (start, end, width, totalHidden) {
 Range.prototype._onDragStart = function (event) {
   this.deltaDifference = 0;
   this.previousDelta = 0;
+
   // only allow dragging when configured as movable
   if (!this.options.moveable) return;
+
+  // only start dragging when the mouse is inside the current range
+  if (!this._isInsideRange(event)) return;
 
   // refuse to drag when we where pinching to prevent the timeline make a jump
   // when releasing the fingers in opposite order from the touch screen
@@ -5337,6 +5592,8 @@ Range.prototype._onDragStart = function (event) {
  * @private
  */
 Range.prototype._onDrag = function (event) {
+  if (!this.props.touch.dragging) return;
+
   // only allow dragging when configured as movable
   if (!this.options.moveable) return;
 
@@ -5356,7 +5613,13 @@ Range.prototype._onDrag = function (event) {
   interval -= duration;
 
   var width = direction == 'horizontal' ? this.body.domProps.center.width : this.body.domProps.center.height;
-  var diffRange = -delta / width * interval;
+
+  if (this.options.rtl) {
+    var diffRange = delta / width * interval;
+  } else {
+    var diffRange = -delta / width * interval;
+  }
+
   var newStart = this.props.touch.start + diffRange;
   var newEnd = this.props.touch.end + diffRange;
 
@@ -5374,10 +5637,13 @@ Range.prototype._onDrag = function (event) {
   this.previousDelta = delta;
   this._applyRange(newStart, newEnd);
 
+  var startDate = new Date(this.start);
+  var endDate = new Date(this.end);
+
   // fire a rangechange event
   this.body.emitter.emit('rangechange', {
-    start: new Date(this.start),
-    end: new Date(this.end),
+    start: startDate,
+    end: endDate,
     byUser: true
   });
 };
@@ -5388,6 +5654,8 @@ Range.prototype._onDrag = function (event) {
  * @private
  */
 Range.prototype._onDragEnd = function (event) {
+  if (!this.props.touch.dragging) return;
+
   // only allow dragging when configured as movable
   if (!this.options.moveable) return;
 
@@ -5419,6 +5687,12 @@ Range.prototype._onMouseWheel = function (event) {
   // only allow zooming when configured as zoomable and moveable
   if (!(this.options.zoomable && this.options.moveable)) return;
 
+  // only zoom when the mouse is inside the current range
+  if (!this._isInsideRange(event)) return;
+
+  // only zoom when the according key is pressed and the zoomKey option is set
+  if (this.options.zoomKey && !event[this.options.zoomKey]) return;
+
   // retrieve delta
   var delta = 0;
   if (event.wheelDelta) {
@@ -5447,7 +5721,7 @@ Range.prototype._onMouseWheel = function (event) {
     }
 
     // calculate center, the date to zoom around
-    var pointer = getPointer({ x: event.clientX, y: event.clientY }, this.body.dom.center);
+    var pointer = this.getPointer({ x: event.clientX, y: event.clientY }, this.body.dom.center);
     var pointerDate = this._pointerToDate(pointer);
 
     this.zoom(scale, pointerDate, delta);
@@ -5483,14 +5757,14 @@ Range.prototype._onPinch = function (event) {
   this.props.touch.allowDragging = false;
 
   if (!this.props.touch.center) {
-    this.props.touch.center = getPointer(event.center, this.body.dom.center);
+    this.props.touch.center = this.getPointer(event.center, this.body.dom.center);
   }
 
   var scale = 1 / (event.scale + this.scaleOffset);
   var centerDate = this._pointerToDate(this.props.touch.center);
 
   var hiddenDuration = DateUtil.getHiddenDurationBetween(this.body.hiddenDates, this.start, this.end);
-  var hiddenDurationBefore = DateUtil.getHiddenDurationBefore(this.body.hiddenDates, this, centerDate);
+  var hiddenDurationBefore = DateUtil.getHiddenDurationBefore(this.options.moment, this.body.hiddenDates, this, centerDate);
   var hiddenDurationAfter = hiddenDuration - hiddenDurationBefore;
 
   // calculate new start and end
@@ -5515,6 +5789,27 @@ Range.prototype._onPinch = function (event) {
 
   this.startToFront = false; // revert to default
   this.endToFront = true; // revert to default
+};
+
+/**
+ * Test whether the mouse from a mouse event is inside the visible window,
+ * between the current start and end date
+ * @param {Object} event
+ * @return {boolean} Returns true when inside the visible window
+ * @private
+ */
+Range.prototype._isInsideRange = function (event) {
+  // calculate the time where the mouse is, check whether inside
+  // and no scroll action should happen.
+  var clientX = event.center ? event.center.x : event.clientX;
+  if (this.options.rtl) {
+    var x = clientX - util.getAbsoluteLeft(this.body.dom.centerContainer);
+  } else {
+    var x = util.getAbsoluteRight(this.body.dom.centerContainer) - clientX;
+  }
+  var time = this.body.util.toTime(x);
+
+  return time >= this.start && time <= this.end;
 };
 
 /**
@@ -5545,12 +5840,19 @@ Range.prototype._pointerToDate = function (pointer) {
  * @return {{x: Number, y: Number}} pointer
  * @private
  */
-function getPointer(touch, element) {
-  return {
-    x: touch.x - util.getAbsoluteLeft(element),
-    y: touch.y - util.getAbsoluteTop(element)
-  };
-}
+Range.prototype.getPointer = function (touch, element) {
+  if (this.options.rtl) {
+    return {
+      x: util.getAbsoluteRight(element) - touch.x,
+      y: touch.y - util.getAbsoluteTop(element)
+    };
+  } else {
+    return {
+      x: touch.x - util.getAbsoluteLeft(element),
+      y: touch.y - util.getAbsoluteTop(element)
+    };
+  }
+};
 
 /**
  * Zoom the range the given scale in or out. Start and end date will
@@ -5569,7 +5871,7 @@ Range.prototype.zoom = function (scale, center, delta) {
   }
 
   var hiddenDuration = DateUtil.getHiddenDurationBetween(this.body.hiddenDates, this.start, this.end);
-  var hiddenDurationBefore = DateUtil.getHiddenDurationBefore(this.body.hiddenDates, this, center);
+  var hiddenDurationBefore = DateUtil.getHiddenDurationBefore(this.options.moment, this.body.hiddenDates, this, center);
   var hiddenDurationAfter = hiddenDuration - hiddenDurationBefore;
 
   // calculate new start and end
@@ -5673,7 +5975,6 @@ exports.orderByEnd = function (items) {
  */
 exports.stack = function (items, margin, force) {
   var i, iMax;
-
   if (force) {
     // reset top position of all items
     for (i = 0, iMax = items.length; i < iMax; i++) {
@@ -5694,7 +5995,7 @@ exports.stack = function (items, margin, force) {
         var collidingItem = null;
         for (var j = 0, jj = items.length; j < jj; j++) {
           var other = items[j];
-          if (other.top !== null && other !== item && other.stack && exports.collision(item, other, margin.item)) {
+          if (other.top !== null && other !== item && other.stack && exports.collision(item, other, margin.item, other.options.rtl)) {
             collidingItem = other;
             break;
           }
@@ -5745,10 +6046,15 @@ exports.nostack = function (items, margin, subgroups) {
  * @param {{horizontal: number, vertical: number}} margin
  *                          An object containing a horizontal and vertical
  *                          minimum required margin.
+ * @param {boolean} rtl
  * @return {boolean}        true if a and b collide, else false
  */
-exports.collision = function (a, b, margin) {
-  return a.left - margin.horizontal + EPSILON < b.left + b.width && a.left + a.width + margin.horizontal - EPSILON > b.left && a.top - margin.vertical + EPSILON < b.top + b.height && a.top + a.height + margin.vertical - EPSILON > b.top;
+exports.collision = function (a, b, margin, rtl) {
+  if (rtl) {
+    return a.right - margin.horizontal + EPSILON < b.right + b.width && a.right + a.width + margin.horizontal - EPSILON > b.right && a.top - margin.vertical + EPSILON < b.top + b.height && a.top + a.height + margin.vertical - EPSILON > b.top;
+  } else {
+    return a.left - margin.horizontal + EPSILON < b.left + b.width && a.left + a.width + margin.horizontal - EPSILON > b.left && a.top - margin.vertical + EPSILON < b.top + b.height && a.top + a.height + margin.vertical - EPSILON > b.top;
+  }
 };
 
 },{}],17:[function(require,module,exports){
@@ -5785,10 +6091,12 @@ var util = require('../util');
  * @param {Number} [minimumStep] Optional. Minimum step size in milliseconds
  */
 function TimeStep(start, end, minimumStep, hiddenDates) {
+  this.moment = moment;
+
   // variables
-  this.current = new Date();
-  this._start = new Date();
-  this._end = new Date();
+  this.current = this.moment();
+  this._start = this.moment();
+  this._end = this.moment();
 
   this.autoScale = true;
   this.scale = 'day';
@@ -5801,8 +6109,11 @@ function TimeStep(start, end, minimumStep, hiddenDates) {
   this.switchedDay = false;
   this.switchedMonth = false;
   this.switchedYear = false;
-  this.hiddenDates = hiddenDates;
-  if (hiddenDates === undefined) {
+  if (Array.isArray(hiddenDates)) {
+    this.hiddenDates = hiddenDates;
+  } else if (hiddenDates != undefined) {
+    this.hiddenDates = [hiddenDates];
+  } else {
     this.hiddenDates = [];
   }
 
@@ -5834,6 +6145,20 @@ TimeStep.FORMAT = {
 };
 
 /**
+ * Set custom constructor function for moment. Can be used to set dates
+ * to UTC or to set a utcOffset.
+ * @param {function} moment
+ */
+TimeStep.prototype.setMoment = function (moment) {
+  this.moment = moment;
+
+  // update the date properties, can have a new utcOffset
+  this.current = this.moment(this.current);
+  this._start = this.moment(this._start);
+  this._end = this.moment(this._end);
+};
+
+/**
  * Set custom formatting for the minor an major labels of the TimeStep.
  * Both `minorLabels` and `majorLabels` are an Object with properties:
  * 'millisecond', 'second', 'minute', 'hour', 'weekday', 'day', 'month', 'year'.
@@ -5856,11 +6181,11 @@ TimeStep.prototype.setFormat = function (format) {
  */
 TimeStep.prototype.setRange = function (start, end, minimumStep) {
   if (!(start instanceof Date) || !(end instanceof Date)) {
-    throw 'No legal start or end date in method setRange';
+    throw "No legal start or end date in method setRange";
   }
 
-  this._start = start != undefined ? new Date(start.valueOf()) : new Date();
-  this._end = end != undefined ? new Date(end.valueOf()) : new Date();
+  this._start = start != undefined ? this.moment(start.valueOf()) : new Date();
+  this._end = end != undefined ? this.moment(end.valueOf()) : new Date();
 
   if (this.autoScale) {
     this.setMinimumStep(minimumStep);
@@ -5870,8 +6195,8 @@ TimeStep.prototype.setRange = function (start, end, minimumStep) {
 /**
  * Set the range iterator to the start date.
  */
-TimeStep.prototype.first = function () {
-  this.current = new Date(this._start.valueOf());
+TimeStep.prototype.start = function () {
+  this.current = this._start.clone();
   this.roundToMinor();
 };
 
@@ -5885,40 +6210,40 @@ TimeStep.prototype.roundToMinor = function () {
   // noinspection FallThroughInSwitchStatementJS
   switch (this.scale) {
     case 'year':
-      this.current.setFullYear(this.step * Math.floor(this.current.getFullYear() / this.step));
-      this.current.setMonth(0);
+      this.current.year(this.step * Math.floor(this.current.year() / this.step));
+      this.current.month(0);
     case 'month':
-      this.current.setDate(1);
+      this.current.date(1);
     case 'day': // intentional fall through
     case 'weekday':
-      this.current.setHours(0);
+      this.current.hours(0);
     case 'hour':
-      this.current.setMinutes(0);
+      this.current.minutes(0);
     case 'minute':
-      this.current.setSeconds(0);
+      this.current.seconds(0);
     case 'second':
-      this.current.setMilliseconds(0);
-      //case 'millisecond': // nothing to do for milliseconds
+      this.current.milliseconds(0);
+    //case 'millisecond': // nothing to do for milliseconds
   }
 
   if (this.step != 1) {
     // round down to the first minor value that is a multiple of the current step size
     switch (this.scale) {
       case 'millisecond':
-        this.current.setMilliseconds(this.current.getMilliseconds() - this.current.getMilliseconds() % this.step);break;
+        this.current.subtract(this.current.milliseconds() % this.step, 'milliseconds');break;
       case 'second':
-        this.current.setSeconds(this.current.getSeconds() - this.current.getSeconds() % this.step);break;
+        this.current.subtract(this.current.seconds() % this.step, 'seconds');break;
       case 'minute':
-        this.current.setMinutes(this.current.getMinutes() - this.current.getMinutes() % this.step);break;
+        this.current.subtract(this.current.minutes() % this.step, 'minutes');break;
       case 'hour':
-        this.current.setHours(this.current.getHours() - this.current.getHours() % this.step);break;
+        this.current.subtract(this.current.hours() % this.step, 'hours');break;
       case 'weekday': // intentional fall through
       case 'day':
-        this.current.setDate(this.current.getDate() - 1 - (this.current.getDate() - 1) % this.step + 1);break;
+        this.current.subtract((this.current.date() - 1) % this.step, 'day');break;
       case 'month':
-        this.current.setMonth(this.current.getMonth() - this.current.getMonth() % this.step);break;
+        this.current.subtract(this.current.month() % this.step, 'month');break;
       case 'year':
-        this.current.setFullYear(this.current.getFullYear() - this.current.getFullYear() % this.step);break;
+        this.current.subtract(this.current.year() % this.step, 'year');break;
       default:
         break;
     }
@@ -5941,48 +6266,47 @@ TimeStep.prototype.next = function () {
 
   // Two cases, needed to prevent issues with switching daylight savings
   // (end of March and end of October)
-  if (this.current.getMonth() < 6) {
+  if (this.current.month() < 6) {
     switch (this.scale) {
       case 'millisecond':
-
-        this.current = new Date(this.current.valueOf() + this.step);break;
+        this.current.add(this.step, 'millisecond');break;
       case 'second':
-        this.current = new Date(this.current.valueOf() + this.step * 1000);break;
+        this.current.add(this.step, 'second');break;
       case 'minute':
-        this.current = new Date(this.current.valueOf() + this.step * 1000 * 60);break;
+        this.current.add(this.step, 'minute');break;
       case 'hour':
-        this.current = new Date(this.current.valueOf() + this.step * 1000 * 60 * 60);
+        this.current.add(this.step, 'hour');
         // in case of skipping an hour for daylight savings, adjust the hour again (else you get: 0h 5h 9h ... instead of 0h 4h 8h ...)
-        var h = this.current.getHours();
-        this.current.setHours(h - h % this.step);
+        // TODO: is this still needed now we use the function of moment.js?
+        this.current.subtract(this.current.hours() % this.step, 'hour');
         break;
       case 'weekday': // intentional fall through
       case 'day':
-        this.current.setDate(this.current.getDate() + this.step);break;
+        this.current.add(this.step, 'day');break;
       case 'month':
-        this.current.setMonth(this.current.getMonth() + this.step);break;
+        this.current.add(this.step, 'month');break;
       case 'year':
-        this.current.setFullYear(this.current.getFullYear() + this.step);break;
+        this.current.add(this.step, 'year');break;
       default:
         break;
     }
   } else {
     switch (this.scale) {
       case 'millisecond':
-        this.current = new Date(this.current.valueOf() + this.step);break;
+        this.current.add(this.step, 'millisecond');break;
       case 'second':
-        this.current.setSeconds(this.current.getSeconds() + this.step);break;
+        this.current.add(this.step, 'second');break;
       case 'minute':
-        this.current.setMinutes(this.current.getMinutes() + this.step);break;
+        this.current.add(this.step, 'minute');break;
       case 'hour':
-        this.current.setHours(this.current.getHours() + this.step);break;
+        this.current.add(this.step, 'hour');break;
       case 'weekday': // intentional fall through
       case 'day':
-        this.current.setDate(this.current.getDate() + this.step);break;
+        this.current.add(this.step, 'day');break;
       case 'month':
-        this.current.setMonth(this.current.getMonth() + this.step);break;
+        this.current.add(this.step, 'month');break;
       case 'year':
-        this.current.setFullYear(this.current.getFullYear() + this.step);break;
+        this.current.add(this.step, 'year');break;
       default:
         break;
     }
@@ -5992,18 +6316,18 @@ TimeStep.prototype.next = function () {
     // round down to the correct major value
     switch (this.scale) {
       case 'millisecond':
-        if (this.current.getMilliseconds() < this.step) this.current.setMilliseconds(0);break;
+        if (this.current.milliseconds() < this.step) this.current.milliseconds(0);break;
       case 'second':
-        if (this.current.getSeconds() < this.step) this.current.setSeconds(0);break;
+        if (this.current.seconds() < this.step) this.current.seconds(0);break;
       case 'minute':
-        if (this.current.getMinutes() < this.step) this.current.setMinutes(0);break;
+        if (this.current.minutes() < this.step) this.current.minutes(0);break;
       case 'hour':
-        if (this.current.getHours() < this.step) this.current.setHours(0);break;
+        if (this.current.hours() < this.step) this.current.hours(0);break;
       case 'weekday': // intentional fall through
       case 'day':
-        if (this.current.getDate() < this.step + 1) this.current.setDate(1);break;
+        if (this.current.date() < this.step + 1) this.current.date(1);break;
       case 'month':
-        if (this.current.getMonth() < this.step) this.current.setMonth(0);break;
+        if (this.current.month() < this.step) this.current.month(0);break;
       case 'year':
         break; // nothing to do for year
       default:
@@ -6013,15 +6337,15 @@ TimeStep.prototype.next = function () {
 
   // safety mechanism: if current time is still unchanged, move to the end
   if (this.current.valueOf() == prev) {
-    this.current = new Date(this._end.valueOf());
+    this.current = this._end.clone();
   }
 
-  DateUtil.stepOverHiddenDates(this, prev);
+  DateUtil.stepOverHiddenDates(this.moment, this, prev);
 };
 
 /**
  * Get the current datetime
- * @return {Date}  current The current date
+ * @return {Moment}  current The current date
  */
 TimeStep.prototype.getCurrent = function () {
   return this.current;
@@ -6175,93 +6499,93 @@ TimeStep.prototype.setMinimumStep = function (minimumStep) {
  * @return {Date} snappedDate
  */
 TimeStep.snap = function (date, scale, step) {
-  var clone = new Date(date.valueOf());
+  var clone = moment(date);
 
   if (scale == 'year') {
-    var year = clone.getFullYear() + Math.round(clone.getMonth() / 12);
-    clone.setFullYear(Math.round(year / step) * step);
-    clone.setMonth(0);
-    clone.setDate(0);
-    clone.setHours(0);
-    clone.setMinutes(0);
-    clone.setSeconds(0);
-    clone.setMilliseconds(0);
+    var year = clone.year() + Math.round(clone.month() / 12);
+    clone.year(Math.round(year / step) * step);
+    clone.month(0);
+    clone.date(0);
+    clone.hours(0);
+    clone.minutes(0);
+    clone.seconds(0);
+    clone.milliseconds(0);
   } else if (scale == 'month') {
-    if (clone.getDate() > 15) {
-      clone.setDate(1);
-      clone.setMonth(clone.getMonth() + 1);
+    if (clone.date() > 15) {
+      clone.date(1);
+      clone.add(1, 'month');
       // important: first set Date to 1, after that change the month.
     } else {
-      clone.setDate(1);
-    }
+        clone.date(1);
+      }
 
-    clone.setHours(0);
-    clone.setMinutes(0);
-    clone.setSeconds(0);
-    clone.setMilliseconds(0);
+    clone.hours(0);
+    clone.minutes(0);
+    clone.seconds(0);
+    clone.milliseconds(0);
   } else if (scale == 'day') {
     //noinspection FallthroughInSwitchStatementJS
     switch (step) {
       case 5:
       case 2:
-        clone.setHours(Math.round(clone.getHours() / 24) * 24);break;
+        clone.hours(Math.round(clone.hours() / 24) * 24);break;
       default:
-        clone.setHours(Math.round(clone.getHours() / 12) * 12);break;
+        clone.hours(Math.round(clone.hours() / 12) * 12);break;
     }
-    clone.setMinutes(0);
-    clone.setSeconds(0);
-    clone.setMilliseconds(0);
+    clone.minutes(0);
+    clone.seconds(0);
+    clone.milliseconds(0);
   } else if (scale == 'weekday') {
     //noinspection FallthroughInSwitchStatementJS
     switch (step) {
       case 5:
       case 2:
-        clone.setHours(Math.round(clone.getHours() / 12) * 12);break;
+        clone.hours(Math.round(clone.hours() / 12) * 12);break;
       default:
-        clone.setHours(Math.round(clone.getHours() / 6) * 6);break;
+        clone.hours(Math.round(clone.hours() / 6) * 6);break;
     }
-    clone.setMinutes(0);
-    clone.setSeconds(0);
-    clone.setMilliseconds(0);
+    clone.minutes(0);
+    clone.seconds(0);
+    clone.milliseconds(0);
   } else if (scale == 'hour') {
     switch (step) {
       case 4:
-        clone.setMinutes(Math.round(clone.getMinutes() / 60) * 60);break;
+        clone.minutes(Math.round(clone.minutes() / 60) * 60);break;
       default:
-        clone.setMinutes(Math.round(clone.getMinutes() / 30) * 30);break;
+        clone.minutes(Math.round(clone.minutes() / 30) * 30);break;
     }
-    clone.setSeconds(0);
-    clone.setMilliseconds(0);
+    clone.seconds(0);
+    clone.milliseconds(0);
   } else if (scale == 'minute') {
     //noinspection FallthroughInSwitchStatementJS
     switch (step) {
       case 15:
       case 10:
-        clone.setMinutes(Math.round(clone.getMinutes() / 5) * 5);
-        clone.setSeconds(0);
+        clone.minutes(Math.round(clone.minutes() / 5) * 5);
+        clone.seconds(0);
         break;
       case 5:
-        clone.setSeconds(Math.round(clone.getSeconds() / 60) * 60);break;
+        clone.seconds(Math.round(clone.seconds() / 60) * 60);break;
       default:
-        clone.setSeconds(Math.round(clone.getSeconds() / 30) * 30);break;
+        clone.seconds(Math.round(clone.seconds() / 30) * 30);break;
     }
-    clone.setMilliseconds(0);
+    clone.milliseconds(0);
   } else if (scale == 'second') {
     //noinspection FallthroughInSwitchStatementJS
     switch (step) {
       case 15:
       case 10:
-        clone.setSeconds(Math.round(clone.getSeconds() / 5) * 5);
-        clone.setMilliseconds(0);
+        clone.seconds(Math.round(clone.seconds() / 5) * 5);
+        clone.milliseconds(0);
         break;
       case 5:
-        clone.setMilliseconds(Math.round(clone.getMilliseconds() / 1000) * 1000);break;
+        clone.milliseconds(Math.round(clone.milliseconds() / 1000) * 1000);break;
       default:
-        clone.setMilliseconds(Math.round(clone.getMilliseconds() / 500) * 500);break;
+        clone.milliseconds(Math.round(clone.milliseconds() / 500) * 500);break;
     }
   } else if (scale == 'millisecond') {
     var _step = step > 5 ? step / 2 : 1;
-    clone.setMilliseconds(Math.round(clone.getMilliseconds() / _step) * _step);
+    clone.milliseconds(Math.round(clone.milliseconds() / _step) * _step);
   }
 
   return clone;
@@ -6314,20 +6638,21 @@ TimeStep.prototype.isMajor = function () {
     }
   }
 
+  var date = this.moment(this.current);
   switch (this.scale) {
     case 'millisecond':
-      return this.current.getMilliseconds() == 0;
+      return date.milliseconds() == 0;
     case 'second':
-      return this.current.getSeconds() == 0;
+      return date.seconds() == 0;
     case 'minute':
-      return this.current.getHours() == 0 && this.current.getMinutes() == 0;
+      return date.hours() == 0 && date.minutes() == 0;
     case 'hour':
-      return this.current.getHours() == 0;
+      return date.hours() == 0;
     case 'weekday': // intentional fall through
     case 'day':
-      return this.current.getDate() == 1;
+      return date.date() == 1;
     case 'month':
-      return this.current.getMonth() == 0;
+      return date.month() == 0;
     case 'year':
       return false;
     default:
@@ -6347,7 +6672,7 @@ TimeStep.prototype.getLabelMinor = function (date) {
   }
 
   var format = this.format.minorLabels[this.scale];
-  return format && format.length > 0 ? moment(date).format(format) : '';
+  return format && format.length > 0 ? this.moment(date).format(format) : '';
 };
 
 /**
@@ -6362,12 +6687,13 @@ TimeStep.prototype.getLabelMajor = function (date) {
   }
 
   var format = this.format.majorLabels[this.scale];
-  return format && format.length > 0 ? moment(date).format(format) : '';
+  return format && format.length > 0 ? this.moment(date).format(format) : '';
 };
 
 TimeStep.prototype.getClassName = function () {
-  var m = moment(this.current);
-  var date = m.locale ? m.locale('en') : m.lang('en'); // old versions of moment have .lang() function
+  var _moment = this.moment;
+  var m = this.moment(this.current);
+  var current = m.locale ? m.locale('en') : m.lang('en'); // old versions of moment have .lang() function
   var step = this.step;
 
   function even(value) {
@@ -6378,10 +6704,10 @@ TimeStep.prototype.getClassName = function () {
     if (date.isSame(new Date(), 'day')) {
       return ' vis-today';
     }
-    if (date.isSame(moment().add(1, 'day'), 'day')) {
+    if (date.isSame(_moment().add(1, 'day'), 'day')) {
       return ' vis-tomorrow';
     }
-    if (date.isSame(moment().add(-1, 'day'), 'day')) {
+    if (date.isSame(_moment().add(-1, 'day'), 'day')) {
       return ' vis-yesterday';
     }
     return '';
@@ -6401,35 +6727,35 @@ TimeStep.prototype.getClassName = function () {
 
   switch (this.scale) {
     case 'millisecond':
-      return even(date.milliseconds()).trim();
+      return even(current.milliseconds()).trim();
 
     case 'second':
-      return even(date.seconds()).trim();
+      return even(current.seconds()).trim();
 
     case 'minute':
-      return even(date.minutes()).trim();
+      return even(current.minutes()).trim();
 
     case 'hour':
-      var hours = date.hours();
+      var hours = current.hours();
       if (this.step == 4) {
         hours = hours + '-h' + (hours + 4);
       }
-      return 'vis-h' + hours + today(date) + even(date.hours());
+      return 'vis-h' + hours + today(current) + even(current.hours());
 
     case 'weekday':
-      return 'vis-' + date.format('dddd').toLowerCase() + today(date) + currentWeek(date) + even(date.date());
+      return 'vis-' + current.format('dddd').toLowerCase() + today(current) + currentWeek(current) + even(current.date());
 
     case 'day':
-      var day = date.date();
-      var month = date.format('MMMM').toLowerCase();
-      return 'vis-day' + day + ' vis-' + month + currentMonth(date) + even(day - 1);
+      var day = current.date();
+      var month = current.format('MMMM').toLowerCase();
+      return 'vis-day' + day + ' vis-' + month + currentMonth(current) + even(day - 1);
 
     case 'month':
-      return 'vis-' + date.format('MMMM').toLowerCase() + currentMonth(date) + even(date.month());
+      return 'vis-' + current.format('MMMM').toLowerCase() + currentMonth(current) + even(current.month());
 
     case 'year':
-      var year = date.year();
-      return 'vis-year' + year + currentYear(date) + even(year);
+      var year = current.year();
+      return 'vis-year' + year + currentYear(current) + even(year);
 
     default:
       return '';
@@ -6441,23 +6767,15 @@ module.exports = TimeStep;
 },{"../module/moment":7,"../util":33,"./DateUtil":14}],18:[function(require,module,exports){
 'use strict';
 
-var Emitter = require('emitter-component');
-var Hammer = require('../module/hammer');
-var util = require('../util');
-var DataSet = require('../DataSet');
-var DataView = require('../DataView');
-var Range = require('./Range');
-var Core = require('./Core');
-var TimeAxis = require('./component/TimeAxis');
-var CurrentTime = require('./component/CurrentTime');
-var CustomTime = require('./component/CustomTime');
-var ItemSet = require('./component/ItemSet');
+function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { 'default': obj }; }
 
-var Configurator = require('../shared/Configurator');
-var Validator = require('../shared/Validator')['default'];
-var printStyle = require('../shared/Validator').printStyle;
-var allOptions = require('./optionsTimeline').allOptions;
-var configureOptions = require('./optionsTimeline').configureOptions;
+var _sharedConfigurator = require('../shared/Configurator');
+
+var _sharedConfigurator2 = _interopRequireDefault(_sharedConfigurator);
+
+var _sharedValidator = require('../shared/Validator');
+
+var _sharedValidator2 = _interopRequireDefault(_sharedValidator);
 
 /**
  * Create a timeline visualization
@@ -6468,7 +6786,25 @@ var configureOptions = require('./optionsTimeline').configureOptions;
  * @constructor
  * @extends Core
  */
+var Emitter = require('emitter-component');
+var Hammer = require('../module/hammer');
+var moment = require('../module/moment');
+var util = require('../util');
+var DataSet = require('../DataSet');
+var DataView = require('../DataView');
+var Range = require('./Range');
+var Core = require('./Core');
+var TimeAxis = require('./component/TimeAxis');
+var CurrentTime = require('./component/CurrentTime');
+var CustomTime = require('./component/CustomTime');
+var ItemSet = require('./component/ItemSet');
+
+var printStyle = require('../shared/Validator').printStyle;
+var allOptions = require('./optionsTimeline').allOptions;
+var configureOptions = require('./optionsTimeline').configureOptions;
+
 function Timeline(container, items, groups, options) {
+
   if (!(this instanceof Timeline)) {
     throw new SyntaxError('Constructor must be called with the new operator');
   }
@@ -6486,11 +6822,14 @@ function Timeline(container, items, groups, options) {
     end: null,
 
     autoResize: true,
+    throttleRedraw: 0, // ms
 
     orientation: {
       axis: 'bottom', // axis orientation: 'bottom', 'top', or 'both'
       item: 'bottom' // not relevant
     },
+    rtl: false,
+    moment: moment,
 
     width: null,
     height: null,
@@ -6544,7 +6883,7 @@ function Timeline(container, items, groups, options) {
   this.components.push(this.currentTime);
 
   // item set
-  this.itemSet = new ItemSet(this.body);
+  this.itemSet = new ItemSet(this.body, this.options);
   this.components.push(this.itemSet);
 
   this.itemsData = null; // DataSet
@@ -6560,6 +6899,27 @@ function Timeline(container, items, groups, options) {
     me.emit('contextmenu', me.getEventProperties(event));
   };
 
+  //Single time autoscale/fit
+  this.fitDone = false;
+  this.on('changed', function () {
+    if (this.itemsData == null) return;
+    if (!me.fitDone) {
+      me.fitDone = true;
+      if (me.options.start != undefined || me.options.end != undefined) {
+        if (me.options.start == undefined || me.options.end == undefined) {
+          var range = me.getItemRange();
+        }
+
+        var start = me.options.start != undefined ? me.options.start : range.min;
+        var end = me.options.end != undefined ? me.options.end : range.max;
+
+        me.setWindow(start, end, { animation: false });
+      } else {
+        me.fit({ animation: false });
+      }
+    }
+  });
+
   // apply options
   if (options) {
     this.setOptions(options);
@@ -6573,9 +6933,10 @@ function Timeline(container, items, groups, options) {
   // create itemset
   if (items) {
     this.setItems(items);
-  } else {
-    this._redraw();
   }
+
+  // draw for the first time
+  this._redraw();
 }
 
 // Extend the functionality from Core
@@ -6587,13 +6948,15 @@ Timeline.prototype = new Core();
  * @private
  */
 Timeline.prototype._createConfigurator = function () {
-  return new Configurator(this, this.dom.container, configureOptions);
+  return new _sharedConfigurator2['default'](this, this.dom.container, configureOptions);
 };
 
 /**
  * Force a redraw. The size of all items will be recalculated.
  * Can be useful to manually redraw when option autoResize=false and the window
  * has been resized, or when the items CSS has been changed.
+ *
+ * Note: this function will be overridden on construction with a trottled version
  */
 Timeline.prototype.redraw = function () {
   this.itemSet && this.itemSet.markDirty({ refreshItems: true });
@@ -6602,7 +6965,8 @@ Timeline.prototype.redraw = function () {
 
 Timeline.prototype.setOptions = function (options) {
   // validate options
-  var errorFound = Validator.validate(options, allOptions);
+  var errorFound = _sharedValidator2['default'].validate(options, allOptions);
+
   if (errorFound === true) {
     console.log('%cErrors have been found in the supplied options object.', printStyle);
   }
@@ -6630,8 +6994,6 @@ Timeline.prototype.setOptions = function (options) {
  * @param {vis.DataSet | Array | null} items
  */
 Timeline.prototype.setItems = function (items) {
-  var initialLoad = this.itemsData == null;
-
   // convert to type DataSet when needed
   var newDataSet;
   if (!items) {
@@ -6651,21 +7013,6 @@ Timeline.prototype.setItems = function (items) {
   // set items
   this.itemsData = newDataSet;
   this.itemSet && this.itemSet.setItems(newDataSet);
-
-  if (initialLoad) {
-    if (this.options.start != undefined || this.options.end != undefined) {
-      if (this.options.start == undefined || this.options.end == undefined) {
-        var range = this.getItemRange();
-      }
-
-      var start = this.options.start != undefined ? this.options.start : range.min;
-      var end = this.options.end != undefined ? this.options.end : range.max;
-
-      this.setWindow(start, end, { animation: false });
-    } else {
-      this.fit({ animation: false });
-    }
-  }
 };
 
 /**
@@ -6798,8 +7145,18 @@ Timeline.prototype.focus = function (id, options) {
  */
 Timeline.prototype.fit = function (options) {
   var animation = options && options.animation !== undefined ? options.animation : true;
-  var range = this.getItemRange();
-  this.range.setRange(range.min, range.max, animation);
+  var range;
+
+  var dataset = this.itemsData && this.itemsData.getDataSet();
+  if (dataset.length === 1 && dataset.get()[0].end === undefined) {
+    // a single item -> don't fit, just show a range around the item from -4 to +3 days
+    range = this.getDataRange();
+    this.moveTo(range.min.valueOf(), { animation: animation });
+  } else {
+    // exactly fit the items (plus a small margin)
+    range = this.getItemRange();
+    this.range.setRange(range.min, range.max, animation);
+  }
 };
 
 /**
@@ -6812,8 +7169,8 @@ Timeline.prototype.getItemRange = function () {
 
   // get a rough approximation for the range based on the items start and end dates
   var range = this.getDataRange();
-  var min = range.min;
-  var max = range.max;
+  var min = range.min !== null ? range.min.valueOf() : null;
+  var max = range.max !== null ? range.max.valueOf() : null;
   var minItem = null;
   var maxItem = null;
 
@@ -6832,7 +7189,10 @@ Timeline.prototype.getItemRange = function () {
       var getEnd = function getEnd(item) {
         var end = item.data.end != undefined ? item.data.end : item.data.start;
         return util.convert(end, 'Date').valueOf();
-      };
+      }
+
+      // calculate the date of the left side and right side of the items given
+      ;
 
       interval = max - min;
       // ms
@@ -6840,23 +7200,27 @@ Timeline.prototype.getItemRange = function () {
         interval = 10;
       }
       factor = interval / _this.props.center.width;
-
-      // calculate the date of the left side and right side of the items given
       util.forEach(_this.itemSet.items, (function (item) {
         item.show();
+        item.repositionX();
 
         var start = getStart(item);
         var end = getEnd(item);
 
-        var left = new Date(start - (item.getWidthLeft() + 10) * factor);
-        var right = new Date(end + (item.getWidthRight() + 10) * factor);
+        if (this.options.rtl) {
+          var startSide = start - (item.getWidthRight() + 10) * factor;
+          var endSide = end + (item.getWidthLeft() + 10) * factor;
+        } else {
+          var startSide = start - (item.getWidthLeft() + 10) * factor;
+          var endSide = end + (item.getWidthRight() + 10) * factor;
+        }
 
-        if (left < min) {
-          min = left;
+        if (startSide < min) {
+          min = startSide;
           minItem = item;
         }
-        if (right > max) {
-          max = right;
+        if (endSide > max) {
+          max = endSide;
           maxItem = item;
         }
       }).bind(_this));
@@ -6868,8 +7232,13 @@ Timeline.prototype.getItemRange = function () {
         // px
 
         if (delta > 0) {
-          min = getStart(minItem) - lhs * interval / delta; // ms
-          max = getEnd(maxItem) + rhs * interval / delta; // ms
+          if (_this.options.rtl) {
+            min = getStart(minItem) - rhs * interval / delta; // ms
+            max = getEnd(maxItem) + lhs * interval / delta; // ms
+          } else {
+              min = getStart(minItem) - lhs * interval / delta; // ms
+              max = getEnd(maxItem) + rhs * interval / delta; // ms
+            }
         }
       }
     })();
@@ -6898,7 +7267,7 @@ Timeline.prototype.getDataRange = function () {
         min = start;
       }
       if (max === null || end > max) {
-        max = start;
+        max = end;
       }
     });
   }
@@ -6918,7 +7287,11 @@ Timeline.prototype.getDataRange = function () {
 Timeline.prototype.getEventProperties = function (event) {
   var clientX = event.center ? event.center.x : event.clientX;
   var clientY = event.center ? event.center.y : event.clientY;
-  var x = clientX - util.getAbsoluteLeft(this.dom.centerContainer);
+  if (this.options.rtl) {
+    var x = util.getAbsoluteRight(this.dom.centerContainer) - clientX;
+  } else {
+    var x = clientX - util.getAbsoluteLeft(this.dom.centerContainer);
+  }
   var y = clientY - util.getAbsoluteTop(this.dom.centerContainer);
 
   var item = this.itemSet.itemFromTarget(event);
@@ -6965,7 +7338,7 @@ Timeline.prototype.getEventProperties = function (event) {
 
 module.exports = Timeline;
 
-},{"../DataSet":2,"../DataView":3,"../module/hammer":6,"../shared/Configurator":11,"../shared/Validator":12,"../util":33,"./Core":13,"./Range":15,"./component/CurrentTime":21,"./component/CustomTime":22,"./component/ItemSet":24,"./component/TimeAxis":25,"./optionsTimeline":32,"emitter-component":34}],19:[function(require,module,exports){
+},{"../DataSet":2,"../DataView":3,"../module/hammer":6,"../module/moment":7,"../shared/Configurator":11,"../shared/Validator":12,"../util":33,"./Core":13,"./Range":15,"./component/CurrentTime":21,"./component/CustomTime":22,"./component/ItemSet":24,"./component/TimeAxis":25,"./optionsTimeline":32,"emitter-component":34}],19:[function(require,module,exports){
 'use strict';
 
 var util = require('../../util');
@@ -7062,7 +7435,9 @@ Component.prototype.redraw = function () {
 /**
  * Destroy the component. Cleanup DOM and event listeners
  */
-Component.prototype.destroy = function () {};
+Component.prototype.destroy = function () {
+  // should be implemented by the component
+};
 
 /**
  * Test whether the component is resized since the last time _isResized() was
@@ -7080,8 +7455,6 @@ Component.prototype._isResized = function () {
 };
 
 module.exports = Component;
-
-// should be implemented by the component
 
 },{}],21:[function(require,module,exports){
 'use strict';
@@ -7104,8 +7477,10 @@ function CurrentTime(body, options) {
 
   // default options
   this.defaultOptions = {
+    rtl: false,
     showCurrentTime: true,
 
+    moment: moment,
     locales: locales,
     locale: 'en'
   };
@@ -7151,7 +7526,7 @@ CurrentTime.prototype.destroy = function () {
 CurrentTime.prototype.setOptions = function (options) {
   if (options) {
     // copy all options that we know
-    util.selectiveExtend(['showCurrentTime', 'locale', 'locales'], this.options, options);
+    util.selectiveExtend(['rtl', 'showCurrentTime', 'moment', 'locale', 'locales'], this.options, options);
   }
 };
 
@@ -7172,21 +7547,25 @@ CurrentTime.prototype.redraw = function () {
       this.start();
     }
 
-    var now = new Date(new Date().valueOf() + this.offset);
+    var now = this.options.moment(new Date().valueOf() + this.offset);
     var x = this.body.util.toScreen(now);
 
     var locale = this.options.locales[this.options.locale];
     if (!locale) {
       if (!this.warned) {
-        console.log('WARNING: options.locales[\'' + this.options.locale + '\'] not found. See http://visjs.org/docs/timeline.html#Localization');
+        console.log('WARNING: options.locales[\'' + this.options.locale + '\'] not found. See http://visjs.org/docs/timeline/#Localization');
         this.warned = true;
       }
       locale = this.options.locales['en']; // fall back on english when not available
     }
-    var title = locale.current + ' ' + locale.time + ': ' + moment(now).format('dddd, MMMM Do YYYY, H:mm:ss');
+    var title = locale.current + ' ' + locale.time + ': ' + now.format('dddd, MMMM Do YYYY, H:mm:ss');
     title = title.charAt(0).toUpperCase() + title.substring(1);
 
-    this.bar.style.left = x + 'px';
+    if (this.options.rtl) {
+      this.bar.style.right = x + 'px';
+    } else {
+      this.bar.style.left = x + 'px';
+    }
     this.bar.title = title;
   } else {
     // remove the line from the DOM
@@ -7215,6 +7594,7 @@ CurrentTime.prototype.start = function () {
     if (interval > 1000) interval = 1000;
 
     me.redraw();
+    me.body.emitter.emit('currentTimeTick');
 
     // start a renderTimer to adjust for the new time
     me.currentTimeTimer = setTimeout(update, interval);
@@ -7281,9 +7661,11 @@ function CustomTime(body, options) {
 
   // default options
   this.defaultOptions = {
+    moment: moment,
     locales: locales,
     locale: 'en',
-    id: undefined
+    id: undefined,
+    title: undefined
   };
   this.options = util.extend({}, this.defaultOptions);
 
@@ -7313,7 +7695,7 @@ CustomTime.prototype = new Component();
 CustomTime.prototype.setOptions = function (options) {
   if (options) {
     // copy all options that we know
-    util.selectiveExtend(['locale', 'locales', 'id'], this.options, options);
+    util.selectiveExtend(['moment', 'locale', 'locales', 'id'], this.options, options);
   }
 };
 
@@ -7343,11 +7725,7 @@ CustomTime.prototype._create = function () {
   this.hammer.on('panstart', this._onDragStart.bind(this));
   this.hammer.on('panmove', this._onDrag.bind(this));
   this.hammer.on('panend', this._onDragEnd.bind(this));
-  this.hammer.get('pan').set({ threshold: 5, direction: 30 }); // 30 is ALL_DIRECTIONS in hammer.
-  // TODO: cleanup
-  //this.hammer.on('pan',   function (event) {
-  //  event.preventDefault();
-  //});
+  this.hammer.get('pan').set({ threshold: 5, direction: Hammer.DIRECTION_HORIZONTAL });
 };
 
 /**
@@ -7386,8 +7764,13 @@ CustomTime.prototype.redraw = function () {
     }
     locale = this.options.locales['en']; // fall back on english when not available
   }
-  var title = locale.time + ': ' + moment(this.customTime).format('dddd, MMMM Do YYYY, H:mm:ss');
-  title = title.charAt(0).toUpperCase() + title.substring(1);
+
+  var title = this.options.title;
+  // To hide the title completely use empty string ''.
+  if (title === undefined) {
+    title = locale.time + ': ' + this.options.moment(this.customTime).format('dddd, MMMM Do YYYY, H:mm:ss');
+    title = title.charAt(0).toUpperCase() + title.substring(1);
+  }
 
   this.bar.style.left = x + 'px';
   this.bar.title = title;
@@ -7420,6 +7803,14 @@ CustomTime.prototype.setCustomTime = function (time) {
  */
 CustomTime.prototype.getCustomTime = function () {
   return new Date(this.customTime.valueOf());
+};
+
+/**
+  * Set custom title.
+  * @param {Date | number | string} title
+  */
+CustomTime.prototype.setCustomTitle = function (title) {
+  this.options.title = title;
 };
 
 /**
@@ -7530,7 +7921,7 @@ function Group(groupId, data, itemSet) {
   };
   this.checkRangedItems = false; // needed to refresh the ranged items if the window is programatically changed with NO overlap.
   var me = this;
-  this.itemSet.body.emitter.on('checkRangedItems', function () {
+  this.itemSet.body.emitter.on("checkRangedItems", function () {
     me.checkRangedItems = true;
   });
 
@@ -7545,7 +7936,11 @@ function Group(groupId, data, itemSet) {
  */
 Group.prototype._create = function () {
   var label = document.createElement('div');
-  label.className = 'vis-label';
+  if (this.itemSet.options.groupEditable.order) {
+    label.className = 'vis-label draggable';
+  } else {
+    label.className = 'vis-label';
+  }
   this.dom.label = label;
 
   var inner = document.createElement('div');
@@ -7579,8 +7974,18 @@ Group.prototype._create = function () {
  */
 Group.prototype.setData = function (data) {
   // update contents
-  var content = data && data.content;
+  var content;
+  if (this.itemSet.options && this.itemSet.options.groupTemplate) {
+    content = this.itemSet.options.groupTemplate(data);
+  } else {
+    content = data && data.content;
+  }
+
   if (content instanceof Element) {
+    this.dom.inner.appendChild(content);
+    while (this.dom.inner.firstChild) {
+      this.dom.inner.removeChild(this.dom.inner.firstChild);
+    }
     this.dom.inner.appendChild(content);
   } else if (content !== undefined && content !== null) {
     this.dom.inner.innerHTML = content;
@@ -7615,11 +8020,11 @@ Group.prototype.setData = function (data) {
 
   // update style
   if (this.style) {
-    util.removeCssText(this.dom.label, 'vis-' + this.style);
+    util.removeCssText(this.dom.label, this.style);
     this.style = null;
   }
   if (data && data.style) {
-    util.addCssText(this.dom.label, 'vis-' + data.style);
+    util.addCssText(this.dom.label, data.style);
     this.style = data.style;
   }
 };
@@ -7656,6 +8061,9 @@ Group.prototype.redraw = function (range, margin, restack) {
     restack = true;
   }
 
+  // recalculate the height of the subgroups
+  this._calculateSubGroupHeights();
+
   // reposition visible items vertically
   if (typeof this.itemSet.options.order === 'function') {
     // a custom order function
@@ -7684,8 +8092,8 @@ Group.prototype.redraw = function (range, margin, restack) {
     this.visibleItems = this._updateVisibleItems(this.orderedItems, this.visibleItems, range);
   } else {
     // no custom order function, lazy stacking
-    this.visibleItems = this._updateVisibleItems(this.orderedItems, this.visibleItems, range);
 
+    this.visibleItems = this._updateVisibleItems(this.orderedItems, this.visibleItems, range);
     if (this.itemSet.options.stack) {
       // TODO: ugly way to access options...
       stack.stack(this.visibleItems, margin, restack);
@@ -7701,10 +8109,9 @@ Group.prototype.redraw = function (range, margin, restack) {
   // calculate actual size and position
   var foreground = this.dom.foreground;
   this.top = foreground.offsetTop;
-  this.left = foreground.offsetLeft;
+  this.right = foreground.offsetLeft;
   this.width = foreground.offsetWidth;
   resized = util.updateProperty(this, 'height', height) || resized;
-
   // recalculate size of label
   resized = util.updateProperty(this.props.label, 'width', this.dom.inner.clientWidth) || resized;
   resized = util.updateProperty(this.props.label, 'height', this.dom.inner.clientHeight) || resized;
@@ -7724,6 +8131,25 @@ Group.prototype.redraw = function (range, margin, restack) {
 };
 
 /**
+ * recalculate the height of the subgroups
+ * @private
+ */
+Group.prototype._calculateSubGroupHeights = function () {
+  if (Object.keys(this.subgroups).length > 0) {
+    var me = this;
+
+    this.resetSubgroups();
+
+    util.forEach(this.visibleItems, function (item) {
+      if (item.data.subgroup !== undefined) {
+        me.subgroups[item.data.subgroup].height = Math.max(me.subgroups[item.data.subgroup].height, item.height);
+        me.subgroups[item.data.subgroup].visible = true;
+      }
+    });
+  }
+};
+
+/**
  * recalculate the height of the group
  * @param {{item: {horizontal: number, vertical: number}, axis: number}} margin
  * @returns {number} Returns the height
@@ -7733,20 +8159,12 @@ Group.prototype._calculateHeight = function (margin) {
   // recalculate the height of the group
   var height;
   var visibleItems = this.visibleItems;
-  //var visibleSubgroups = [];
-  //this.visibleSubgroups = 0;
-  this.resetSubgroups();
-  var me = this;
   if (visibleItems.length > 0) {
     var min = visibleItems[0].top;
     var max = visibleItems[0].top + visibleItems[0].height;
     util.forEach(visibleItems, function (item) {
       min = Math.min(min, item.top);
       max = Math.max(max, item.top + item.height);
-      if (item.data.subgroup !== undefined) {
-        me.subgroups[item.data.subgroup].height = Math.max(me.subgroups[item.data.subgroup].height, item.height);
-        me.subgroups[item.data.subgroup].visible = true;
-      }
     });
     if (min > margin.axis) {
       // there is an empty gap between the lowest item and the axis
@@ -7885,6 +8303,11 @@ Group.prototype.remove = function (item) {
     if (subgroup) {
       var itemIndex = subgroup.items.indexOf(item);
       subgroup.items.splice(itemIndex, 1);
+      if (!subgroup.items.length) {
+        delete this.subgroups[item.data.subgroup];
+        this.subgroupIndex--;
+      }
+      this.orderSubgroups();
     }
   }
 };
@@ -8112,22 +8535,34 @@ var BACKGROUND = '__background__'; // reserved group id for background items wit
  */
 function ItemSet(body, options) {
   this.body = body;
-
   this.defaultOptions = {
+    rtl: false,
     type: null, // 'box', 'point', 'range', 'background'
     orientation: {
       item: 'bottom' // item orientation: 'top' or 'bottom'
     },
     align: 'auto', // alignment of box items
     stack: true,
-    groupOrder: null,
+    groupOrderSwap: function groupOrderSwap(fromGroup, toGroup, groups) {
+      var targetOrder = toGroup.order;
+      toGroup.order = fromGroup.order;
+      fromGroup.order = targetOrder;
+    },
+    groupOrder: 'order',
 
     selectable: true,
     multiselect: false,
+    itemsAlwaysDraggable: false,
 
     editable: {
       updateTime: false,
       updateGroup: false,
+      add: false,
+      remove: false
+    },
+
+    groupEditable: {
+      order: false,
       add: false,
       remove: false
     },
@@ -8147,6 +8582,15 @@ function ItemSet(body, options) {
       callback(item);
     },
     onMoving: function onMoving(item, callback) {
+      callback(item);
+    },
+    onAddGroup: function onAddGroup(item, callback) {
+      callback(item);
+    },
+    onMoveGroup: function onMoveGroup(item, callback) {
+      callback(item);
+    },
+    onRemoveGroup: function onRemoveGroup(item, callback) {
       callback(item);
     },
 
@@ -8213,6 +8657,7 @@ function ItemSet(body, options) {
   this.stackDirty = true; // if true, all items will be restacked on next redraw
 
   this.touchParams = {}; // stores properties while dragging
+  this.groupTouchParams = {};
   // create the HTML DOM
 
   this._create();
@@ -8284,7 +8729,7 @@ ItemSet.prototype._create = function () {
   this.hammer.on('panstart', this._onDragStart.bind(this));
   this.hammer.on('panmove', this._onDrag.bind(this));
   this.hammer.on('panend', this._onDragEnd.bind(this));
-  this.hammer.get('pan').set({ threshold: 5, direction: 30 }); // 30 is ALL_DIRECTIONS in hammer.
+  this.hammer.get('pan').set({ threshold: 5, direction: Hammer.DIRECTION_HORIZONTAL });
 
   // single select (or unselect) when tapping an item
   this.hammer.on('tap', this._onSelectItem.bind(this));
@@ -8294,6 +8739,12 @@ ItemSet.prototype._create = function () {
 
   // add item on doubletap
   this.hammer.on('doubletap', this._onAddItem.bind(this));
+  this.groupHammer = new Hammer(this.body.dom.leftContainer);
+
+  this.groupHammer.on('panstart', this._onGroupDragStart.bind(this));
+  this.groupHammer.on('panmove', this._onGroupDrag.bind(this));
+  this.groupHammer.on('panend', this._onGroupDragEnd.bind(this));
+  this.groupHammer.get('pan').set({ threshold: 5, direction: Hammer.DIRECTION_HORIZONTAL });
 
   // attach to the DOM
   this.show();
@@ -8366,7 +8817,7 @@ ItemSet.prototype._create = function () {
 ItemSet.prototype.setOptions = function (options) {
   if (options) {
     // copy all options that we know
-    var fields = ['type', 'align', 'order', 'stack', 'selectable', 'multiselect', 'groupOrder', 'dataAttributes', 'template', 'hide', 'snap'];
+    var fields = ['type', 'rtl', 'align', 'order', 'stack', 'selectable', 'multiselect', 'itemsAlwaysDraggable', 'multiselectPerGroup', 'groupOrder', 'dataAttributes', 'template', 'groupTemplate', 'hide', 'snap', 'groupOrderSwap'];
     util.selectiveExtend(fields, this.options, options);
 
     if ('orientation' in options) {
@@ -8406,6 +8857,16 @@ ItemSet.prototype.setOptions = function (options) {
       }
     }
 
+    if ('groupEditable' in options) {
+      if (typeof options.groupEditable === 'boolean') {
+        this.options.groupEditable.order = options.groupEditable;
+        this.options.groupEditable.add = options.groupEditable;
+        this.options.groupEditable.remove = options.groupEditable;
+      } else if (typeof options.groupEditable === 'object') {
+        util.selectiveExtend(['order', 'add', 'remove'], this.options.groupEditable, options.groupEditable);
+      }
+    }
+
     // callback functions
     var addCallback = (function (name) {
       var fn = options[name];
@@ -8416,7 +8877,7 @@ ItemSet.prototype.setOptions = function (options) {
         this.options[name] = fn;
       }
     }).bind(this);
-    ['onAdd', 'onUpdate', 'onRemove', 'onMove', 'onMoving'].forEach(addCallback);
+    ['onAdd', 'onUpdate', 'onRemove', 'onMove', 'onMoving', 'onAddGroup', 'onMoveGroup', 'onRemoveGroup'].forEach(addCallback);
 
     // force the itemSet to refresh: options like orientation and margins may be changed
     this.markDirty();
@@ -8541,8 +9002,14 @@ ItemSet.prototype.getSelection = function () {
  */
 ItemSet.prototype.getVisibleItems = function () {
   var range = this.body.range.getRange();
-  var left = this.body.util.toScreen(range.start);
-  var right = this.body.util.toScreen(range.end);
+
+  if (this.options.rtl) {
+    var right = this.body.util.toScreen(range.start);
+    var left = this.body.util.toScreen(range.end);
+  } else {
+    var left = this.body.util.toScreen(range.start);
+    var right = this.body.util.toScreen(range.end);
+  }
 
   var ids = [];
   for (var groupId in this.groups) {
@@ -8555,8 +9022,14 @@ ItemSet.prototype.getVisibleItems = function () {
       for (var i = 0; i < rawVisibleItems.length; i++) {
         var item = rawVisibleItems[i];
         // TODO: also check whether visible vertically
-        if (item.left < right && item.left + item.width > left) {
-          ids.push(item.id);
+        if (this.options.rtl) {
+          if (item.right < left && item.right + item.width > right) {
+            ids.push(item.id);
+          }
+        } else {
+          if (item.left < right && item.left + item.width > left) {
+            ids.push(item.id);
+          }
         }
       }
     }
@@ -8596,7 +9069,12 @@ ItemSet.prototype.redraw = function () {
 
   // recalculate absolute position (before redrawing groups)
   this.props.top = this.body.domProps.top.height + this.body.domProps.border.top;
-  this.props.left = this.body.domProps.left.width + this.body.domProps.border.left;
+
+  if (this.options.rtl) {
+    this.props.right = this.body.domProps.right.width + this.body.domProps.border.right;
+  } else {
+    this.props.left = this.body.domProps.left.width + this.body.domProps.border.left;
+  }
 
   // update class name
   frame.className = 'vis-itemset';
@@ -8647,7 +9125,11 @@ ItemSet.prototype.redraw = function () {
 
   // reposition axis
   this.dom.axis.style.top = asSize(orientation == 'top' ? this.body.domProps.top.height + this.body.domProps.border.top : this.body.domProps.top.height + this.body.domProps.centerContainer.height);
-  this.dom.axis.style.left = '0';
+  if (this.options.rtl) {
+    this.dom.axis.style.right = '0';
+  } else {
+    this.dom.axis.style.left = '0';
+  }
 
   // check if this component is resized
   resized = this._isResized() || resized;
@@ -8765,6 +9247,8 @@ ItemSet.prototype.setItems = function (items) {
     // update the group holding all ungrouped items
     this._updateUngrouped();
   }
+
+  this.body.emitter.emit('_change', { queue: true });
 };
 
 /**
@@ -8822,7 +9306,7 @@ ItemSet.prototype.setGroups = function (groups) {
   // update the order of all items in each group
   this._order();
 
-  this.body.emitter.emit('change', { queue: true });
+  this.body.emitter.emit('_change', { queue: true });
 };
 
 /**
@@ -8927,7 +9411,7 @@ ItemSet.prototype._onUpdate = function (ids) {
 
   this._order();
   this.stackDirty = true; // force re-stacking of all items next redraw
-  this.body.emitter.emit('change', { queue: true });
+  this.body.emitter.emit('_change', { queue: true });
 };
 
 /**
@@ -8957,7 +9441,7 @@ ItemSet.prototype._onRemove = function (ids) {
     // update order
     this._order();
     this.stackDirty = true; // force re-stacking of all items next redraw
-    this.body.emitter.emit('change', { queue: true });
+    this.body.emitter.emit('_change', { queue: true });
   }
 };
 
@@ -9026,7 +9510,7 @@ ItemSet.prototype._onAddGroups = function (ids) {
     }
   });
 
-  this.body.emitter.emit('change', { queue: true });
+  this.body.emitter.emit('_change', { queue: true });
 };
 
 /**
@@ -9047,7 +9531,7 @@ ItemSet.prototype._onRemoveGroups = function (ids) {
 
   this.markDirty();
 
-  this.body.emitter.emit('change', { queue: true });
+  this.body.emitter.emit('_change', { queue: true });
 };
 
 /**
@@ -9179,6 +9663,18 @@ ItemSet.prototype._onTouch = function (event) {
 };
 
 /**
+ * Given an group id, returns the index it has.
+ *
+ * @param {Number} groupID
+ * @private
+ */
+ItemSet.prototype._getGroupIndex = function (groupId) {
+  for (var i = 0; i < this.groupIds.length; i++) {
+    if (groupId == this.groupIds[i]) return i;
+  }
+};
+
+/**
  * Start dragging the selected events
  * @param {Event} event
  * @private
@@ -9188,7 +9684,7 @@ ItemSet.prototype._onDragStart = function (event) {
   var me = this;
   var props;
 
-  if (item && item.selected) {
+  if (item && (item.selected || this.options.itemsAlwaysDraggable)) {
 
     if (!this.options.editable.updateTime && !this.options.editable.updateGroup && !item.editable) {
       return;
@@ -9207,7 +9703,7 @@ ItemSet.prototype._onDragStart = function (event) {
         item: dragLeftItem,
         initialX: event.center.x,
         dragLeft: true,
-        data: util.extend({}, item.data) // clone the items data
+        data: this._cloneItemData(item.data)
       };
 
       this.touchParams.itemProps = [props];
@@ -9216,21 +9712,27 @@ ItemSet.prototype._onDragStart = function (event) {
         item: dragRightItem,
         initialX: event.center.x,
         dragRight: true,
-        data: util.extend({}, item.data) // clone the items data
+        data: this._cloneItemData(item.data)
       };
 
       this.touchParams.itemProps = [props];
     } else {
-      this.touchParams.itemProps = this.getSelection().map(function (id) {
+      this.touchParams.selectedItem = item;
+
+      var baseGroupIndex = this._getGroupIndex(item.data.group);
+
+      var itemsToDrag = this.options.itemsAlwaysDraggable && !item.selected ? [item.id] : this.getSelection();
+
+      this.touchParams.itemProps = itemsToDrag.map((function (id) {
         var item = me.items[id];
-        var props = {
+        var groupIndex = me._getGroupIndex(item.data.group);
+        return {
           item: item,
           initialX: event.center.x,
-          data: util.extend({}, item.data) // clone the items data
+          groupOffset: baseGroupIndex - groupIndex,
+          data: this._cloneItemData(item.data)
         };
-
-        return props;
-      });
+      }).bind(this));
     }
 
     event.stopPropagation();
@@ -9247,12 +9749,19 @@ ItemSet.prototype._onDragStart = function (event) {
  */
 ItemSet.prototype._onDragStartAddItem = function (event) {
   var snap = this.options.snap || null;
-  var xAbs = util.getAbsoluteLeft(this.dom.frame);
-  var x = event.center.x - xAbs - 10; // minus 10 to compensate for the drag starting as soon as you've moved 10px
+
+  if (this.options.rtl) {
+    var xAbs = util.getAbsoluteRight(this.dom.frame);
+    var x = xAbs - event.center.x + 10; // plus 10 to compensate for the drag starting as soon as you've moved 10px
+  } else {
+      var xAbs = util.getAbsoluteLeft(this.dom.frame);
+      var x = event.center.x - xAbs - 10; // minus 10 to compensate for the drag starting as soon as you've moved 10px
+    }
+
   var time = this.body.util.toTime(x);
   var scale = this.body.util.getScale();
   var step = this.body.util.getStep();
-  var start = snap ? snap(time, scale, step) : start;
+  var start = snap ? snap(time, scale, step) : time;
   var end = start;
 
   var itemData = {
@@ -9269,18 +9778,22 @@ ItemSet.prototype._onDragStartAddItem = function (event) {
   if (group) {
     itemData.group = group.groupId;
   }
-
   var newItem = new RangeItem(itemData, this.conversion, this.options);
   newItem.id = id; // TODO: not so nice setting id afterwards
-  newItem.data = itemData;
+  newItem.data = this._cloneItemData(itemData);
   this._addItem(newItem);
 
   var props = {
     item: newItem,
-    dragRight: true,
     initialX: event.center.x,
-    data: util.extend({}, itemData)
+    data: newItem.data
   };
+
+  if (this.options.rtl) {
+    props.dragLeft = true;
+  } else {
+    props.dragRight = true;
+  }
   this.touchParams.itemProps = [props];
 
   event.stopPropagation();
@@ -9297,43 +9810,88 @@ ItemSet.prototype._onDrag = function (event) {
 
     var me = this;
     var snap = this.options.snap || null;
-    var xOffset = this.body.dom.root.offsetLeft + this.body.domProps.left.width;
+
+    if (this.options.rtl) {
+      var xOffset = this.body.dom.root.offsetLeft + this.body.domProps.right.width;
+    } else {
+      var xOffset = this.body.dom.root.offsetLeft + this.body.domProps.left.width;
+    }
+
     var scale = this.body.util.getScale();
     var step = this.body.util.getStep();
 
+    //only calculate the new group for the item that's actually dragged
+    var selectedItem = this.touchParams.selectedItem;
+    var updateGroupAllowed = me.options.editable.updateGroup;
+    var newGroupBase = null;
+    if (updateGroupAllowed && selectedItem) {
+      if (selectedItem.data.group != undefined) {
+        // drag from one group to another
+        var group = me.groupFromTarget(event);
+        if (group) {
+          //we know the offset for all items, so the new group for all items
+          //will be relative to this one.
+          newGroupBase = this._getGroupIndex(group.groupId);
+        }
+      }
+    }
+
     // move
-    this.touchParams.itemProps.forEach(function (props) {
-      var newProps = {};
+    this.touchParams.itemProps.forEach((function (props) {
       var current = me.body.util.toTime(event.center.x - xOffset);
       var initial = me.body.util.toTime(props.initialX - xOffset);
-      var offset = current - initial;
 
-      var itemData = util.extend({}, props.item.data); // clone the data
+      if (this.options.rtl) {
+        var offset = -(current - initial); // ms
+      } else {
+          var offset = current - initial; // ms
+        }
 
+      var itemData = this._cloneItemData(props.item.data); // clone the data
       if (props.item.editable === false) {
         return;
       }
 
       var updateTimeAllowed = me.options.editable.updateTime || props.item.editable === true;
-
       if (updateTimeAllowed) {
         if (props.dragLeft) {
           // drag left side of a range item
-          if (itemData.start != undefined) {
-            var initialStart = util.convert(props.data.start, 'Date');
-            var start = new Date(initialStart.valueOf() + offset);
-            itemData.start = snap ? snap(start, scale, step) : start;
+          if (this.options.rtl) {
+            if (itemData.end != undefined) {
+              var initialEnd = util.convert(props.data.end, 'Date');
+              var end = new Date(initialEnd.valueOf() + offset);
+              // TODO: pass a Moment instead of a Date to snap(). (Breaking change)
+              itemData.end = snap ? snap(end, scale, step) : end;
+            }
+          } else {
+            if (itemData.start != undefined) {
+              var initialStart = util.convert(props.data.start, 'Date');
+              var start = new Date(initialStart.valueOf() + offset);
+              // TODO: pass a Moment instead of a Date to snap(). (Breaking change)
+              itemData.start = snap ? snap(start, scale, step) : start;
+            }
           }
         } else if (props.dragRight) {
           // drag right side of a range item
-          if (itemData.end != undefined) {
-            var initialEnd = util.convert(props.data.end, 'Date');
-            var end = new Date(initialEnd.valueOf() + offset);
-            itemData.end = snap ? snap(end, scale, step) : end;
+          if (this.options.rtl) {
+            if (itemData.start != undefined) {
+              var initialStart = util.convert(props.data.start, 'Date');
+              var start = new Date(initialStart.valueOf() + offset);
+              // TODO: pass a Moment instead of a Date to snap(). (Breaking change)
+              itemData.start = snap ? snap(start, scale, step) : start;
+            }
+          } else {
+            if (itemData.end != undefined) {
+              var initialEnd = util.convert(props.data.end, 'Date');
+              var end = new Date(initialEnd.valueOf() + offset);
+              // TODO: pass a Moment instead of a Date to snap(). (Breaking change)
+              itemData.end = snap ? snap(end, scale, step) : end;
+            }
           }
         } else {
           // drag both start and end
           if (itemData.start != undefined) {
+
             var initialStart = util.convert(props.data.start, 'Date').valueOf();
             var start = new Date(initialStart + offset);
 
@@ -9341,9 +9899,11 @@ ItemSet.prototype._onDrag = function (event) {
               var initialEnd = util.convert(props.data.end, 'Date');
               var duration = initialEnd.valueOf() - initialStart.valueOf();
 
+              // TODO: pass a Moment instead of a Date to snap(). (Breaking change)
               itemData.start = snap ? snap(start, scale, step) : start;
               itemData.end = new Date(itemData.start.valueOf() + duration);
             } else {
+              // TODO: pass a Moment instead of a Date to snap(). (Breaking change)
               itemData.start = snap ? snap(start, scale, step) : start;
             }
           }
@@ -9352,26 +9912,29 @@ ItemSet.prototype._onDrag = function (event) {
 
       var updateGroupAllowed = me.options.editable.updateGroup || props.item.editable === true;
 
-      if (updateGroupAllowed && (!props.dragLeft && !props.dragRight)) {
+      if (updateGroupAllowed && !props.dragLeft && !props.dragRight && newGroupBase != null) {
         if (itemData.group != undefined) {
-          // drag from one group to another
-          var group = me.groupFromTarget(event);
-          if (group) {
-            itemData.group = group.groupId;
-          }
+          var newOffset = newGroupBase - props.groupOffset;
+
+          //make sure we stay in bounds
+          newOffset = Math.max(0, newOffset);
+          newOffset = Math.min(me.groupIds.length - 1, newOffset);
+
+          itemData.group = me.groupIds[newOffset];
         }
       }
 
       // confirm moving the item
-      me.options.onMoving(itemData, function (itemData) {
+      itemData = this._cloneItemData(itemData); // convert start and end to the correct type
+      me.options.onMoving(itemData, (function (itemData) {
         if (itemData) {
-          props.item.setData(itemData);
+          props.item.setData(this._cloneItemData(itemData, 'Date'));
         }
-      });
-    });
+      }).bind(this));
+    }).bind(this));
 
     this.stackDirty = true; // force re-stacking of all items next redraw
-    this.body.emitter.emit('change');
+    this.body.emitter.emit('_change');
   }
 };
 
@@ -9403,14 +9966,12 @@ ItemSet.prototype._onDragEnd = function (event) {
   if (this.touchParams.itemProps) {
     event.stopPropagation();
 
-    // prepare a change set for the changed items
-    var changes = [];
     var me = this;
     var dataset = this.itemsData.getDataSet();
-
     var itemProps = this.touchParams.itemProps;
     this.touchParams.itemProps = null;
-    itemProps.forEach(function (props) {
+
+    itemProps.forEach((function (props) {
       var id = props.item.id;
       var exists = me.itemsData.get(id, me.itemOptions) != null;
 
@@ -9424,31 +9985,197 @@ ItemSet.prototype._onDragEnd = function (event) {
 
           // force re-stacking of all items next redraw
           me.stackDirty = true;
-          me.body.emitter.emit('change');
+          me.body.emitter.emit('_change');
         });
       } else {
         // update existing item
-        var itemData = util.extend({}, props.item.data); // clone the data
+        var itemData = this._cloneItemData(props.item.data); // convert start and end to the correct type
         me.options.onMove(itemData, function (itemData) {
           if (itemData) {
             // apply changes
             itemData[dataset._fieldId] = id; // ensure the item contains its id (can be undefined)
-            changes.push(itemData);
+            dataset.update(itemData);
           } else {
             // restore original values
             props.item.setData(props.data);
 
             me.stackDirty = true; // force re-stacking of all items next redraw
-            me.body.emitter.emit('change');
+            me.body.emitter.emit('_change');
           }
         });
       }
+    }).bind(this));
+  }
+};
+
+ItemSet.prototype._onGroupDragStart = function (event) {
+  if (this.options.groupEditable.order) {
+    this.groupTouchParams.group = this.groupFromTarget(event);
+
+    if (this.groupTouchParams.group) {
+      event.stopPropagation();
+
+      this.groupTouchParams.originalOrder = this.groupsData.getIds({
+        order: this.options.groupOrder
+      });
+    }
+  }
+};
+
+ItemSet.prototype._onGroupDrag = function (event) {
+  if (this.options.groupEditable.order && this.groupTouchParams.group) {
+    event.stopPropagation();
+
+    // drag from one group to another
+    var group = this.groupFromTarget(event);
+
+    // try to avoid toggling when groups differ in height
+    if (group && group.height != this.groupTouchParams.group.height) {
+      var movingUp = group.top < this.groupTouchParams.group.top;
+      var clientY = event.center ? event.center.y : event.clientY;
+      var targetGroupTop = util.getAbsoluteTop(group.dom.foreground);
+      var draggedGroupHeight = this.groupTouchParams.group.height;
+      if (movingUp) {
+        // skip swapping the groups when the dragged group is not below clientY afterwards
+        if (targetGroupTop + draggedGroupHeight < clientY) {
+          return;
+        }
+      } else {
+        var targetGroupHeight = group.height;
+        // skip swapping the groups when the dragged group is not below clientY afterwards
+        if (targetGroupTop + targetGroupHeight - draggedGroupHeight > clientY) {
+          return;
+        }
+      }
+    }
+
+    if (group && group != this.groupTouchParams.group) {
+      var groupsData = this.groupsData;
+      var targetGroup = groupsData.get(group.groupId);
+      var draggedGroup = groupsData.get(this.groupTouchParams.group.groupId);
+
+      // switch groups
+      if (draggedGroup && targetGroup) {
+        this.options.groupOrderSwap(draggedGroup, targetGroup, this.groupsData);
+        this.groupsData.update(draggedGroup);
+        this.groupsData.update(targetGroup);
+      }
+
+      // fetch current order of groups
+      var newOrder = this.groupsData.getIds({
+        order: this.options.groupOrder
+      });
+
+      // in case of changes since _onGroupDragStart
+      if (!util.equalArray(newOrder, this.groupTouchParams.originalOrder)) {
+        var groupsData = this.groupsData;
+        var origOrder = this.groupTouchParams.originalOrder;
+        var draggedId = this.groupTouchParams.group.groupId;
+        var numGroups = Math.min(origOrder.length, newOrder.length);
+        var curPos = 0;
+        var newOffset = 0;
+        var orgOffset = 0;
+        while (curPos < numGroups) {
+          // as long as the groups are where they should be step down along the groups order
+          while (curPos + newOffset < numGroups && curPos + orgOffset < numGroups && newOrder[curPos + newOffset] == origOrder[curPos + orgOffset]) {
+            curPos++;
+          }
+
+          // all ok
+          if (curPos + newOffset >= numGroups) {
+            break;
+          }
+
+          // not all ok
+          // if dragged group was move upwards everything below should have an offset
+          if (newOrder[curPos + newOffset] == draggedId) {
+            newOffset = 1;
+            continue;
+          }
+          // if dragged group was move downwards everything above should have an offset
+          else if (origOrder[curPos + orgOffset] == draggedId) {
+              orgOffset = 1;
+              continue;
+            }
+            // found a group (apart from dragged group) that has the wrong position -> switch with the
+            // group at the position where other one should be, fix index arrays and continue
+            else {
+                var slippedPosition = newOrder.indexOf(origOrder[curPos + orgOffset]);
+                var switchGroup = groupsData.get(newOrder[curPos + newOffset]);
+                var shouldBeGroup = groupsData.get(origOrder[curPos + orgOffset]);
+                this.options.groupOrderSwap(switchGroup, shouldBeGroup, groupsData);
+                groupsData.update(switchGroup);
+                groupsData.update(shouldBeGroup);
+
+                var switchGroupId = newOrder[curPos + newOffset];
+                newOrder[curPos + newOffset] = origOrder[curPos + orgOffset];
+                newOrder[slippedPosition] = switchGroupId;
+
+                curPos++;
+              }
+        }
+      }
+    }
+  }
+};
+
+ItemSet.prototype._onGroupDragEnd = function (event) {
+  if (this.options.groupEditable.order && this.groupTouchParams.group) {
+    event.stopPropagation();
+
+    // update existing group
+    var me = this;
+    var id = me.groupTouchParams.group.groupId;
+    var dataset = me.groupsData.getDataSet();
+    var groupData = util.extend({}, dataset.get(id)); // clone the data
+    me.options.onMoveGroup(groupData, function (groupData) {
+      if (groupData) {
+        // apply changes
+        groupData[dataset._fieldId] = id; // ensure the group contains its id (can be undefined)
+        dataset.update(groupData);
+      } else {
+
+        // fetch current order of groups
+        var newOrder = dataset.getIds({
+          order: me.options.groupOrder
+        });
+
+        // restore original order
+        if (!util.equalArray(newOrder, me.groupTouchParams.originalOrder)) {
+          var origOrder = me.groupTouchParams.originalOrder;
+          var numGroups = Math.min(origOrder.length, newOrder.length);
+          var curPos = 0;
+          while (curPos < numGroups) {
+            // as long as the groups are where they should be step down along the groups order
+            while (curPos < numGroups && newOrder[curPos] == origOrder[curPos]) {
+              curPos++;
+            }
+
+            // all ok
+            if (curPos >= numGroups) {
+              break;
+            }
+
+            // found a group that has the wrong position -> switch with the
+            // group at the position where other one should be, fix index arrays and continue
+            var slippedPosition = newOrder.indexOf(origOrder[curPos]);
+            var switchGroup = dataset.get(newOrder[curPos]);
+            var shouldBeGroup = dataset.get(origOrder[curPos]);
+            me.options.groupOrderSwap(switchGroup, shouldBeGroup, dataset);
+            groupsData.update(switchGroup);
+            groupsData.update(shouldBeGroup);
+
+            var switchGroupId = newOrder[curPos];
+            newOrder[curPos] = origOrder[curPos];
+            newOrder[slippedPosition] = switchGroupId;
+
+            curPos++;
+          }
+        }
+      }
     });
 
-    // apply the changes to the data (if there are changes)
-    if (changes.length) {
-      dataset.update(changes);
-    }
+    me.body.emitter.emit('groupDragged', { groupId: id });
   }
 };
 
@@ -9498,8 +10225,6 @@ ItemSet.prototype._onAddItem = function (event) {
   var snap = this.options.snap || null;
   var item = this.itemFromTarget(event);
 
-  event.stopPropagation();
-
   if (item) {
     // update item
 
@@ -9512,13 +10237,20 @@ ItemSet.prototype._onAddItem = function (event) {
     });
   } else {
     // add item
-    var xAbs = util.getAbsoluteLeft(this.dom.frame);
-    var x = event.center.x - xAbs;
+    if (this.options.rtl) {
+      var xAbs = util.getAbsoluteRight(this.dom.frame);
+      var x = xAbs - event.center.x;
+    } else {
+      var xAbs = util.getAbsoluteLeft(this.dom.frame);
+      var x = event.center.x - xAbs;
+    }
+    // var xAbs = util.getAbsoluteLeft(this.dom.frame);
+    // var x = event.center.x - xAbs;
     var start = this.body.util.toTime(x);
     var scale = this.body.util.getScale();
     var step = this.body.util.getStep();
 
-    var newItem = {
+    var newItemData = {
       start: snap ? snap(start, scale, step) : start,
       content: 'new item'
     };
@@ -9526,18 +10258,19 @@ ItemSet.prototype._onAddItem = function (event) {
     // when default type is a range, add a default end date to the new item
     if (this.options.type === 'range') {
       var end = this.body.util.toTime(x + this.props.width / 5);
-      newItem.end = snap ? snap(end, scale, step) : end;
+      newItemData.end = snap ? snap(end, scale, step) : end;
     }
 
-    newItem[this.itemsData._fieldId] = util.randomUUID();
+    newItemData[this.itemsData._fieldId] = util.randomUUID();
 
     var group = this.groupFromTarget(event);
     if (group) {
-      newItem.group = group.groupId;
+      newItemData.group = group.groupId;
     }
 
     // execute async handler to customize (or cancel) adding an item
-    this.options.onAdd(newItem, function (item) {
+    newItemData = this._cloneItemData(newItemData); // convert start and end to the correct type
+    this.options.onAdd(newItemData, function (item) {
       if (item) {
         me.itemsData.getDataSet().add(item);
         // TODO: need to trigger a redraw?
@@ -9566,35 +10299,48 @@ ItemSet.prototype._onMultiSelectItem = function (event) {
 
     if (shiftKey && this.options.multiselect) {
       // select all items between the old selection and the tapped item
+      var itemGroup = this.itemsData.get(item.id).group;
+
+      // when filtering get the group of the last selected item
+      var lastSelectedGroup = undefined;
+      if (this.options.multiselectPerGroup) {
+        if (selection.length > 0) {
+          lastSelectedGroup = this.itemsData.get(selection[0]).group;
+        }
+      }
 
       // determine the selection range
-      selection.push(item.id);
+      if (!this.options.multiselectPerGroup || lastSelectedGroup == undefined || lastSelectedGroup == itemGroup) {
+        selection.push(item.id);
+      }
       var range = ItemSet._getItemRange(this.itemsData.get(selection, this.itemOptions));
 
-      // select all items within the selection range
-      selection = [];
-      for (var id in this.items) {
-        if (this.items.hasOwnProperty(id)) {
-          var _item = this.items[id];
-          var start = _item.data.start;
-          var end = _item.data.end !== undefined ? _item.data.end : start;
+      if (!this.options.multiselectPerGroup || lastSelectedGroup == itemGroup) {
+        // select all items within the selection range
+        selection = [];
+        for (var id in this.items) {
+          if (this.items.hasOwnProperty(id)) {
+            var _item = this.items[id];
+            var start = _item.data.start;
+            var end = _item.data.end !== undefined ? _item.data.end : start;
 
-          if (start >= range.min && end <= range.max && !(_item instanceof BackgroundItem)) {
-            selection.push(_item.id); // do not use id but item.id, id itself is stringified
+            if (start >= range.min && end <= range.max && (!this.options.multiselectPerGroup || lastSelectedGroup == this.itemsData.get(_item.id).group) && !(_item instanceof BackgroundItem)) {
+              selection.push(_item.id); // do not use id but item.id, id itself is stringified
+            }
           }
         }
       }
     } else {
-      // add/remove this item from the current selection
-      var index = selection.indexOf(item.id);
-      if (index == -1) {
-        // item is not yet selected -> select it
-        selection.push(item.id);
-      } else {
-        // item is already selected -> deselect it
-        selection.splice(index, 1);
+        // add/remove this item from the current selection
+        var index = selection.indexOf(item.id);
+        if (index == -1) {
+          // item is not yet selected -> select it
+          selection.push(item.id);
+        } else {
+          // item is already selected -> deselect it
+          selection.splice(index, 1);
+        }
       }
-    }
 
     this.setSelection(selection);
 
@@ -9704,6 +10450,33 @@ ItemSet.itemSetFromTarget = function (event) {
   return null;
 };
 
+/**
+ * Clone the data of an item, and "normalize" it: convert the start and end date
+ * to the type (Date, Moment, ...) configured in the DataSet. If not configured,
+ * start and end are converted to Date.
+ * @param {Object} itemData, typically `item.data`
+ * @param {string} [type]  Optional Date type. If not provided, the type from the DataSet is taken
+ * @return {Object} The cloned object
+ * @private
+ */
+ItemSet.prototype._cloneItemData = function (itemData, type) {
+  var clone = util.extend({}, itemData);
+
+  if (!type) {
+    // convert start and end date to the type (Date, Moment, ...) configured in the DataSet
+    type = this.itemsData.getDataSet()._options.type;
+  }
+
+  if (clone.start != undefined) {
+    clone.start = util.convert(clone.start, type && type.start || 'Date');
+  }
+  if (clone.end != undefined) {
+    clone.end = util.convert(clone.end, type && type.end || 'Date');
+  }
+
+  return clone;
+};
+
 module.exports = ItemSet;
 
 },{"../../DataSet":2,"../../DataView":3,"../../module/hammer":6,"../../util":33,"../TimeStep":17,"./BackgroundGroup":19,"./Component":20,"./Group":23,"./item/BackgroundItem":26,"./item/BoxItem":27,"./item/PointItem":29,"./item/RangeItem":30}],25:[function(require,module,exports){
@@ -9750,7 +10523,9 @@ function TimeAxis(body, options) {
     }, // axis orientation: 'top' or 'bottom'
     showMinorLabels: true,
     showMajorLabels: true,
+    maxMinorChars: 7,
     format: TimeStep.FORMAT,
+    moment: moment,
     timeAxis: null
   };
   this.options = util.extend({}, this.defaultOptions);
@@ -9776,7 +10551,7 @@ TimeAxis.prototype = new Component();
 TimeAxis.prototype.setOptions = function (options) {
   if (options) {
     // copy all options that we know
-    util.selectiveExtend(['showMinorLabels', 'showMajorLabels', 'hiddenDates', 'timeAxis'], this.options, options);
+    util.selectiveExtend(['showMinorLabels', 'showMajorLabels', 'maxMinorChars', 'hiddenDates', 'timeAxis', 'moment', 'rtl'], this.options, options);
 
     // deep copy the format options
     util.selectiveDeepExtend(['format'], this.options, options);
@@ -9880,7 +10655,6 @@ TimeAxis.prototype.redraw = function () {
   } else {
     this.body.dom.backgroundVertical.appendChild(background);
   }
-
   return this._isResized() || parentChanged;
 };
 
@@ -9894,11 +10668,12 @@ TimeAxis.prototype._repaintLabels = function () {
   // calculate range and step (step such that we have space for 7 characters per label)
   var start = util.convert(this.body.range.start, 'Number');
   var end = util.convert(this.body.range.end, 'Number');
-  var timeLabelsize = this.body.util.toTime((this.props.minorCharWidth || 10) * 7).valueOf();
-  var minimumStep = timeLabelsize - DateUtil.getHiddenDurationBefore(this.body.hiddenDates, this.body.range, timeLabelsize);
+  var timeLabelsize = this.body.util.toTime((this.props.minorCharWidth || 10) * this.options.maxMinorChars).valueOf();
+  var minimumStep = timeLabelsize - DateUtil.getHiddenDurationBefore(this.options.moment, this.body.hiddenDates, this.body.range, timeLabelsize);
   minimumStep -= this.body.util.toTime(0).valueOf();
 
   var step = new TimeStep(new Date(start), new Date(end), minimumStep, this.body.hiddenDates);
+  step.setMoment(this.options.moment);
   if (this.options.format) {
     step.setFormat(this.options.format);
   }
@@ -9918,33 +10693,45 @@ TimeAxis.prototype._repaintLabels = function () {
   dom.majorTexts = [];
   dom.minorTexts = [];
 
-  var cur;
-  var x = 0;
-  var isMajor;
-  var xPrev = 0;
-  var width = 0;
-  var prevLine;
+  var current;
+  var next;
+  var x;
+  var xNext;
+  var isMajor, nextIsMajor;
+  var width = 0,
+      prevWidth;
+  var line;
+  var labelMinor;
   var xFirstMajorLabel = undefined;
-  var max = 0;
+  var count = 0;
+  var MAX = 1000;
   var className;
 
-  step.first();
-  while (step.hasNext() && max < 1000) {
-    max++;
+  step.start();
+  next = step.getCurrent();
+  xNext = this.body.util.toScreen(next);
+  while (step.hasNext() && count < MAX) {
+    count++;
 
-    cur = step.getCurrent();
     isMajor = step.isMajor();
     className = step.getClassName();
+    labelMinor = step.getLabelMinor();
 
-    xPrev = x;
-    x = this.body.util.toScreen(cur);
-    width = x - xPrev;
-    if (prevLine) {
-      prevLine.style.width = width + 'px';
-    }
+    current = next;
+    x = xNext;
 
-    if (this.options.showMinorLabels) {
-      this._repaintMinorText(x, step.getLabelMinor(), orientation, className);
+    step.next();
+    next = step.getCurrent();
+    nextIsMajor = step.isMajor();
+    xNext = this.body.util.toScreen(next);
+
+    prevWidth = width;
+    width = xNext - x;
+    var showMinorGrid = width >= prevWidth * 0.4; // prevent displaying of the 31th of the month on a scale of 5 days
+
+    if (this.options.showMinorLabels && showMinorGrid) {
+      var label = this._repaintMinorText(x, labelMinor, orientation, className);
+      label.style.width = width + 'px'; // set width to prevent overflow
     }
 
     if (isMajor && this.options.showMajorLabels) {
@@ -9952,14 +10739,25 @@ TimeAxis.prototype._repaintLabels = function () {
         if (xFirstMajorLabel == undefined) {
           xFirstMajorLabel = x;
         }
-        this._repaintMajorText(x, step.getLabelMajor(), orientation, className);
+        label = this._repaintMajorText(x, step.getLabelMajor(), orientation, className);
       }
-      prevLine = this._repaintMajorLine(x, orientation, className);
+      line = this._repaintMajorLine(x, width, orientation, className);
     } else {
-      prevLine = this._repaintMinorLine(x, orientation, className);
+      // minor line
+      if (showMinorGrid) {
+        line = this._repaintMinorLine(x, width, orientation, className);
+      } else {
+        if (line) {
+          // adjust the width of the previous grid
+          line.style.width = parseInt(line.style.width) + width + 'px';
+        }
+      }
     }
+  }
 
-    step.next();
+  if (count === MAX && !warnedForOverflow) {
+    console.warn('Something is wrong with the Timeline scale. Limited drawing of grid lines to ' + MAX + ' lines.');
+    warnedForOverflow = true;
   }
 
   // create a major label on the left when needed
@@ -9990,6 +10788,7 @@ TimeAxis.prototype._repaintLabels = function () {
  * @param {String} text
  * @param {String} orientation   "top" or "bottom" (default)
  * @param {String} className
+ * @return {Element} Returns the HTML element of the created label
  * @private
  */
 TimeAxis.prototype._repaintMinorText = function (x, text, orientation, className) {
@@ -10008,9 +10807,17 @@ TimeAxis.prototype._repaintMinorText = function (x, text, orientation, className
   label.childNodes[0].nodeValue = text;
 
   label.style.top = orientation == 'top' ? this.props.majorLabelHeight + 'px' : '0';
-  label.style.left = x + 'px';
+
+  if (this.options.rtl) {
+    label.style.left = "";
+    label.style.right = x + 'px';
+  } else {
+    label.style.left = x + 'px';
+  };
   label.className = 'vis-text vis-minor ' + className;
   //label.title = title;  // TODO: this is a heavy operation
+
+  return label;
 };
 
 /**
@@ -10019,6 +10826,7 @@ TimeAxis.prototype._repaintMinorText = function (x, text, orientation, className
  * @param {String} text
  * @param {String} orientation   "top" or "bottom" (default)
  * @param {String} className
+ * @return {Element} Returns the HTML element of the created label
  * @private
  */
 TimeAxis.prototype._repaintMajorText = function (x, text, orientation, className) {
@@ -10039,18 +10847,26 @@ TimeAxis.prototype._repaintMajorText = function (x, text, orientation, className
   //label.title = title; // TODO: this is a heavy operation
 
   label.style.top = orientation == 'top' ? '0' : this.props.minorLabelHeight + 'px';
-  label.style.left = x + 'px';
+  if (this.options.rtl) {
+    label.style.left = "";
+    label.style.right = x + 'px';
+  } else {
+    label.style.left = x + 'px';
+  };
+
+  return label;
 };
 
 /**
  * Create a minor line for the axis at position x
  * @param {Number} x
+ * @param {Number} width
  * @param {String} orientation   "top" or "bottom" (default)
  * @param {String} className
  * @return {Element} Returns the created line
  * @private
  */
-TimeAxis.prototype._repaintMinorLine = function (x, orientation, className) {
+TimeAxis.prototype._repaintMinorLine = function (x, width, orientation, className) {
   // reuse redundant line
   var line = this.dom.redundant.lines.shift();
   if (!line) {
@@ -10067,9 +10883,15 @@ TimeAxis.prototype._repaintMinorLine = function (x, orientation, className) {
     line.style.top = this.body.domProps.top.height + 'px';
   }
   line.style.height = props.minorLineHeight + 'px';
-  line.style.left = x - props.minorLineWidth / 2 + 'px';
-
-  line.className = 'vis-grid vis-vertical vis-minor ' + className;
+  if (this.options.rtl) {
+    line.style.left = "";
+    line.style.right = x - props.minorLineWidth / 2 + 'px';
+    line.className = 'vis-grid vis-vertical-rtl vis-minor ' + className;
+  } else {
+    line.style.left = x - props.minorLineWidth / 2 + 'px';
+    line.className = 'vis-grid vis-vertical vis-minor ' + className;
+  };
+  line.style.width = width + 'px';
 
   return line;
 };
@@ -10077,12 +10899,13 @@ TimeAxis.prototype._repaintMinorLine = function (x, orientation, className) {
 /**
  * Create a Major line for the axis at position x
  * @param {Number} x
+ * @param {Number} width
  * @param {String} orientation   "top" or "bottom" (default)
  * @param {String} className
  * @return {Element} Returns the created line
  * @private
  */
-TimeAxis.prototype._repaintMajorLine = function (x, orientation, className) {
+TimeAxis.prototype._repaintMajorLine = function (x, width, orientation, className) {
   // reuse redundant line
   var line = this.dom.redundant.lines.shift();
   if (!line) {
@@ -10098,10 +10921,18 @@ TimeAxis.prototype._repaintMajorLine = function (x, orientation, className) {
   } else {
     line.style.top = this.body.domProps.top.height + 'px';
   }
-  line.style.left = x - props.majorLineWidth / 2 + 'px';
-  line.style.height = props.majorLineHeight + 'px';
 
-  line.className = 'vis-grid vis-vertical vis-major ' + className;
+  if (this.options.rtl) {
+    line.style.left = "";
+    line.style.right = x - props.majorLineWidth / 2 + 'px';
+    line.className = 'vis-grid vis-vertical-rtl vis-major ' + className;
+  } else {
+    line.style.left = x - props.majorLineWidth / 2 + 'px';
+    line.className = 'vis-grid vis-vertical vis-major ' + className;
+  }
+
+  line.style.height = props.majorLineHeight + 'px';
+  line.style.width = width + 'px';
 
   return line;
 };
@@ -10139,6 +10970,8 @@ TimeAxis.prototype._calculateCharSize = function () {
   this.props.majorCharHeight = this.dom.measureCharMajor.clientHeight;
   this.props.majorCharWidth = this.dom.measureCharMajor.clientWidth;
 };
+
+var warnedForOverflow = false;
 
 module.exports = TimeAxis;
 
@@ -10322,39 +11155,39 @@ BackgroundItem.prototype.repositionY = function (margin) {
     }
     // and when the orientation is bottom:
     else {
-      var newTop = this.parent.top;
-      var totalHeight = 0;
-      for (var subgroup in subgroups) {
-        if (subgroups.hasOwnProperty(subgroup)) {
-          if (subgroups[subgroup].visible == true) {
-            var newHeight = subgroups[subgroup].height + margin.item.vertical;
-            totalHeight += newHeight;
-            if (subgroups[subgroup].index > subgroupIndex) {
-              newTop += newHeight;
+        var newTop = this.parent.top;
+        var totalHeight = 0;
+        for (var subgroup in subgroups) {
+          if (subgroups.hasOwnProperty(subgroup)) {
+            if (subgroups[subgroup].visible == true) {
+              var newHeight = subgroups[subgroup].height + margin.item.vertical;
+              totalHeight += newHeight;
+              if (subgroups[subgroup].index > subgroupIndex) {
+                newTop += newHeight;
+              }
             }
           }
         }
+        height = this.parent.subgroups[itemSubgroup].height + margin.item.vertical;
+        this.dom.box.style.top = this.parent.height - totalHeight + newTop + 'px';
+        this.dom.box.style.bottom = '';
       }
-      height = this.parent.subgroups[itemSubgroup].height + margin.item.vertical;
-      this.dom.box.style.top = this.parent.height - totalHeight + newTop + 'px';
-      this.dom.box.style.bottom = '';
-    }
   }
   // and in the case of no subgroups:
   else {
-    // we want backgrounds with groups to only show in groups.
-    if (this.parent instanceof BackgroundGroup) {
-      // if the item is not in a group:
-      height = Math.max(this.parent.height, this.parent.itemSet.body.domProps.center.height, this.parent.itemSet.body.domProps.centerContainer.height);
-      this.dom.box.style.top = onTop ? '0' : '';
-      this.dom.box.style.bottom = onTop ? '' : '0';
-    } else {
-      height = this.parent.height;
-      // same alignment for items when orientation is top or bottom
-      this.dom.box.style.top = this.parent.top + 'px';
-      this.dom.box.style.bottom = '';
+      // we want backgrounds with groups to only show in groups.
+      if (this.parent instanceof BackgroundGroup) {
+        // if the item is not in a group:
+        height = Math.max(this.parent.height, this.parent.itemSet.body.domProps.center.height, this.parent.itemSet.body.domProps.centerContainer.height);
+        this.dom.box.style.top = onTop ? '0' : '';
+        this.dom.box.style.bottom = onTop ? '' : '0';
+      } else {
+        height = this.parent.height;
+        // same alignment for items when orientation is top or bottom
+        this.dom.box.style.top = this.parent.top + 'px';
+        this.dom.box.style.bottom = '';
+      }
     }
-  }
   this.dom.box.style.height = height + 'px';
 };
 
@@ -10387,7 +11220,7 @@ function BoxItem(data, conversion, options) {
       height: 0
     }
   };
-
+  this.options = options;
   // validate data
   if (data) {
     if (data.start == undefined) {
@@ -10528,26 +11361,58 @@ BoxItem.prototype.hide = function () {
 BoxItem.prototype.repositionX = function () {
   var start = this.conversion.toScreen(this.data.start);
   var align = this.options.align;
-  var left;
 
   // calculate left position of the box
   if (align == 'right') {
-    this.left = start - this.width;
+    if (this.options.rtl) {
+      this.right = start - this.width;
+
+      // reposition box, line, and dot
+      this.dom.box.style.right = this.right + 'px';
+      this.dom.line.style.right = start - this.props.line.width + 'px';
+      this.dom.dot.style.right = start - this.props.line.width / 2 - this.props.dot.width / 2 + 'px';
+    } else {
+      this.left = start - this.width;
+
+      // reposition box, line, and dot
+      this.dom.box.style.left = this.left + 'px';
+      this.dom.line.style.left = start - this.props.line.width + 'px';
+      this.dom.dot.style.left = start - this.props.line.width / 2 - this.props.dot.width / 2 + 'px';
+    }
   } else if (align == 'left') {
-    this.left = start;
+    if (this.options.rtl) {
+      this.right = start;
+
+      // reposition box, line, and dot
+      this.dom.box.style.right = this.right + 'px';
+      this.dom.line.style.right = start + 'px';
+      this.dom.dot.style.right = start + this.props.line.width / 2 - this.props.dot.width / 2 + 'px';
+    } else {
+      this.left = start;
+
+      // reposition box, line, and dot
+      this.dom.box.style.left = this.left + 'px';
+      this.dom.line.style.left = start + 'px';
+      this.dom.dot.style.left = start + this.props.line.width / 2 - this.props.dot.width / 2 + 'px';
+    }
   } else {
     // default or 'center'
-    this.left = start - this.width / 2;
+    if (this.options.rtl) {
+      this.right = start - this.width / 2;
+
+      // reposition box, line, and dot
+      this.dom.box.style.right = this.right + 'px';
+      this.dom.line.style.right = start - this.props.line.width + 'px';
+      this.dom.dot.style.right = start - this.props.dot.width / 2 + 'px';
+    } else {
+      this.left = start - this.width / 2;
+
+      // reposition box, line, and dot
+      this.dom.box.style.left = this.left + 'px';
+      this.dom.line.style.left = start - this.props.line.width / 2 + 'px';
+      this.dom.dot.style.left = start - this.props.dot.width / 2 + 'px';
+    }
   }
-
-  // reposition box
-  this.dom.box.style.left = this.left + 'px';
-
-  // reposition line
-  this.dom.line.style.left = start - this.props.line.width / 2 + 'px';
-
-  // reposition dot
-  this.dom.dot.style.left = start - this.props.dot.width / 2 + 'px';
 };
 
 /**
@@ -10625,6 +11490,7 @@ function Item(data, conversion, options) {
   this.dirty = true;
 
   this.top = null;
+  this.right = null;
   this.left = null;
   this.width = null;
   this.height = null;
@@ -10720,17 +11586,23 @@ Item.prototype.hide = function () {
 /**
  * Repaint the item
  */
-Item.prototype.redraw = function () {};
+Item.prototype.redraw = function () {
+  // should be implemented by the item
+};
 
 /**
  * Reposition the Item horizontally
  */
-Item.prototype.repositionX = function () {};
+Item.prototype.repositionX = function () {
+  // should be implemented by the item
+};
 
 /**
  * Reposition the Item vertically
  */
-Item.prototype.repositionY = function () {};
+Item.prototype.repositionY = function () {
+  // should be implemented by the item
+};
 
 /**
  * Repaint a delete button on the top right of the item when the item is selected
@@ -10745,7 +11617,12 @@ Item.prototype._repaintDeleteButton = function (anchor) {
     var me = this;
 
     var deleteButton = document.createElement('div');
-    deleteButton.className = 'vis-delete';
+
+    if (this.options.rtl) {
+      deleteButton.className = 'vis-delete-rtl';
+    } else {
+      deleteButton.className = 'vis-delete';
+    }
     deleteButton.title = 'Delete this item';
 
     // TODO: be able to destroy the delete button
@@ -10889,12 +11766,6 @@ Item.prototype.getWidthRight = function () {
 
 module.exports = Item;
 
-// should be implemented by the item
-
-// should be implemented by the item
-
-// should be implemented by the item
-
 },{"../../../module/hammer":6,"../../../util":33}],29:[function(require,module,exports){
 'use strict';
 
@@ -10919,10 +11790,11 @@ function PointItem(data, conversion, options) {
     },
     content: {
       height: 0,
-      marginLeft: 0
+      marginLeft: 0,
+      marginRight: 0
     }
   };
-
+  this.options = options;
   // validate data
   if (data) {
     if (data.start == undefined) {
@@ -11012,15 +11884,24 @@ PointItem.prototype.redraw = function () {
     this.props.content.height = dom.content.offsetHeight;
 
     // resize contents
-    dom.content.style.marginLeft = 2 * this.props.dot.width + 'px';
+    if (this.options.rtl) {
+      dom.content.style.marginRight = 2 * this.props.dot.width + 'px';
+    } else {
+      dom.content.style.marginLeft = 2 * this.props.dot.width + 'px';
+    }
     //dom.content.style.marginRight = ... + 'px'; // TODO: margin right
-
-    dom.dot.style.top = (this.height - this.props.dot.height) / 2 + 'px';
-    dom.dot.style.left = this.props.dot.width / 2 + 'px';
 
     // recalculate size
     this.width = dom.point.offsetWidth;
     this.height = dom.point.offsetHeight;
+
+    // reposition the dot
+    dom.dot.style.top = (this.height - this.props.dot.height) / 2 + 'px';
+    if (this.options.rtl) {
+      dom.dot.style.right = this.props.dot.width / 2 + 'px';
+    } else {
+      dom.dot.style.left = this.props.dot.width / 2 + 'px';
+    }
 
     this.dirty = false;
   }
@@ -11058,10 +11939,17 @@ PointItem.prototype.hide = function () {
 PointItem.prototype.repositionX = function () {
   var start = this.conversion.toScreen(this.data.start);
 
-  this.left = start - this.props.dot.width;
+  if (this.options.rtl) {
+    this.right = start - this.props.dot.width;
 
-  // reposition point
-  this.dom.point.style.left = this.left + 'px';
+    // reposition point
+    this.dom.point.style.right = this.right + 'px';
+  } else {
+    this.left = start - this.props.dot.width;
+
+    // reposition point
+    this.dom.point.style.left = this.left + 'px';
+  }
 };
 
 /**
@@ -11071,7 +11959,6 @@ PointItem.prototype.repositionX = function () {
 PointItem.prototype.repositionY = function () {
   var orientation = this.options.orientation.item;
   var point = this.dom.point;
-
   if (orientation == 'top') {
     point.style.top = this.top + 'px';
   } else {
@@ -11092,7 +11979,7 @@ PointItem.prototype.getWidthLeft = function () {
  * @return {number}
  */
 PointItem.prototype.getWidthRight = function () {
-  return this.width - this.props.dot.width;
+  return this.props.dot.width;
 };
 
 module.exports = PointItem;
@@ -11120,7 +12007,7 @@ function RangeItem(data, conversion, options) {
     }
   };
   this.overflow = false; // if contents can overflow (css styling), this flag is set to true
-
+  this.options = options;
   // validate data
   if (data) {
     if (data.start == undefined) {
@@ -11220,7 +12107,6 @@ RangeItem.prototype.redraw = function () {
 
     this.dirty = false;
   }
-
   this._repaintDeleteButton(dom.box);
   this._repaintDragLeft();
   this._repaintDragRight();
@@ -11265,7 +12151,7 @@ RangeItem.prototype.repositionX = function (limitSize) {
   var parentWidth = this.parent.width;
   var start = this.conversion.toScreen(this.data.start);
   var end = this.conversion.toScreen(this.data.end);
-  var contentLeft;
+  var contentStartPosition;
   var contentWidth;
 
   // limit the width of the range, as browsers cannot draw very wide divs
@@ -11280,7 +12166,11 @@ RangeItem.prototype.repositionX = function (limitSize) {
   var boxWidth = Math.max(end - start, 1);
 
   if (this.overflow) {
-    this.left = start;
+    if (this.options.rtl) {
+      this.right = start;
+    } else {
+      this.left = start;
+    }
     this.width = boxWidth + this.props.content.width;
     contentWidth = this.props.content.width;
 
@@ -11288,25 +12178,46 @@ RangeItem.prototype.repositionX = function (limitSize) {
     //       a width which will not change when moving the Timeline
     //       So no re-stacking needed, which is nicer for the eye;
   } else {
-    this.left = start;
-    this.width = boxWidth;
-    contentWidth = Math.min(end - start, this.props.content.width);
-  }
+      if (this.options.rtl) {
+        this.right = start;
+      } else {
+        this.left = start;
+      }
+      this.width = boxWidth;
+      contentWidth = Math.min(end - start, this.props.content.width);
+    }
 
-  this.dom.box.style.left = this.left + 'px';
+  if (this.options.rtl) {
+    this.dom.box.style.right = this.right + 'px';
+  } else {
+    this.dom.box.style.left = this.left + 'px';
+  }
   this.dom.box.style.width = boxWidth + 'px';
 
   switch (this.options.align) {
     case 'left':
-      this.dom.content.style.left = '0';
+      if (this.options.rtl) {
+        this.dom.content.style.right = '0';
+      } else {
+        this.dom.content.style.left = '0';
+      }
       break;
 
     case 'right':
-      this.dom.content.style.left = Math.max(boxWidth - contentWidth, 0) + 'px';
+      if (this.options.rtl) {
+        this.dom.content.style.right = Math.max(boxWidth - contentWidth, 0) + 'px';
+      } else {
+        this.dom.content.style.left = Math.max(boxWidth - contentWidth, 0) + 'px';
+      }
       break;
 
     case 'center':
-      this.dom.content.style.left = Math.max((boxWidth - contentWidth) / 2, 0) + 'px';
+      if (this.options.rtl) {
+        this.dom.content.style.right = Math.max((boxWidth - contentWidth) / 2, 0) + 'px';
+      } else {
+        this.dom.content.style.left = Math.max((boxWidth - contentWidth) / 2, 0) + 'px';
+      }
+
       break;
 
     default:
@@ -11314,18 +12225,22 @@ RangeItem.prototype.repositionX = function (limitSize) {
       // when range exceeds left of the window, position the contents at the left of the visible area
       if (this.overflow) {
         if (end > 0) {
-          contentLeft = Math.max(-start, 0);
+          contentStartPosition = Math.max(-start, 0);
         } else {
-          contentLeft = -contentWidth; // ensure it's not visible anymore
+          contentStartPosition = -contentWidth; // ensure it's not visible anymore
         }
       } else {
-        if (start < 0) {
-          contentLeft = -start;
-        } else {
-          contentLeft = 0;
+          if (start < 0) {
+            contentStartPosition = -start;
+          } else {
+            contentStartPosition = 0;
+          }
         }
+      if (this.options.rtl) {
+        this.dom.content.style.right = contentStartPosition + 'px';
+      } else {
+        this.dom.content.style.left = contentStartPosition + 'px';
       }
-      this.dom.content.style.left = contentLeft + 'px';
   }
 };
 
@@ -11442,7 +12357,9 @@ var allOptions = {
 
   //globals :
   align: { string: string },
+  rtl: { boolean: boolean, 'undefined': 'undefined' },
   autoResize: { boolean: boolean },
+  throttleRedraw: { number: number },
   clickToUse: { boolean: boolean },
   dataAttributes: { string: string, array: array },
   editable: {
@@ -11478,9 +12395,23 @@ var allOptions = {
     },
     __type__: { object: object }
   },
+  moment: { 'function': 'function' },
   groupOrder: { string: string, 'function': 'function' },
+  groupEditable: {
+    add: { boolean: boolean, 'undefined': 'undefined' },
+    remove: { boolean: boolean, 'undefined': 'undefined' },
+    order: { boolean: boolean, 'undefined': 'undefined' },
+    __type__: { boolean: boolean, object: object }
+  },
+  groupOrderSwap: { 'function': 'function' },
   height: { string: string, number: number },
-  hiddenDates: { object: object, array: array },
+  hiddenDates: {
+    start: { date: date, number: number, string: string, moment: moment },
+    end: { date: date, number: number, string: string, moment: moment },
+    repeat: { string: string },
+    __type__: { object: object, array: array }
+  },
+  itemsAlwaysDraggable: { boolean: boolean },
   locale: { string: string },
   locales: {
     __any__: { any: any },
@@ -11497,15 +12428,20 @@ var allOptions = {
   },
   max: { date: date, number: number, string: string, moment: moment },
   maxHeight: { number: number, string: string },
+  maxMinorChars: { number: number },
   min: { date: date, number: number, string: string, moment: moment },
   minHeight: { number: number, string: string },
   moveable: { boolean: boolean },
   multiselect: { boolean: boolean },
+  multiselectPerGroup: { boolean: boolean },
   onAdd: { 'function': 'function' },
   onUpdate: { 'function': 'function' },
   onMove: { 'function': 'function' },
   onMoving: { 'function': 'function' },
   onRemove: { 'function': 'function' },
+  onAddGroup: { 'function': 'function' },
+  onMoveGroup: { 'function': 'function' },
+  onRemoveGroup: { 'function': 'function' },
   order: { 'function': 'function' },
   orientation: {
     axis: { string: string, 'undefined': 'undefined' },
@@ -11520,6 +12456,7 @@ var allOptions = {
   snap: { 'function': 'function', 'null': 'null' },
   start: { date: date, number: number, string: string, moment: moment },
   template: { 'function': 'function' },
+  groupTemplate: { 'function': 'function' },
   timeAxis: {
     scale: { string: string, 'undefined': 'undefined' },
     step: { number: number, 'undefined': 'undefined' },
@@ -11528,6 +12465,7 @@ var allOptions = {
   type: { string: string },
   width: { string: string, number: number },
   zoomable: { boolean: boolean },
+  zoomKey: { string: ['ctrlKey', 'altKey', 'metaKey', ''] },
   zoomMax: { number: number },
   zoomMin: { number: number },
 
@@ -11537,7 +12475,9 @@ var allOptions = {
 var configureOptions = {
   global: {
     align: ['center', 'left', 'right'],
+    direction: false,
     autoResize: true,
+    throttleRedraw: [10, 0, 1000, 10],
     clickToUse: false,
     // dataAttributes: ['all'], // FIXME: can be 'all' or string[]
     editable: {
@@ -11571,6 +12511,7 @@ var configureOptions = {
     },
 
     //groupOrder: {string, 'function': 'function'},
+    groupsDraggable: false,
     height: '',
     //hiddenDates: {object, array},
     locale: '',
@@ -11583,10 +12524,12 @@ var configureOptions = {
     },
     max: '',
     maxHeight: '',
+    maxMinorChars: [7, 0, 20, 1],
     min: '',
     minHeight: '',
     moveable: false,
     multiselect: false,
+    multiselectPerGroup: false,
     //onAdd: {'function': 'function'},
     //onUpdate: {'function': 'function'},
     //onMove: {'function': 'function'},
@@ -11612,6 +12555,7 @@ var configureOptions = {
     type: ['box', 'point', 'range', 'background'],
     width: '100%',
     zoomable: true,
+    zoomKey: ['ctrlKey', 'altKey', 'metaKey', ''],
     zoomMax: [315360000000000, 10, 315360000000000, 1],
     zoomMin: [10, 10, 315360000000000, 1]
   }
@@ -11849,7 +12793,11 @@ exports.selectiveDeepExtend = function (props, a, b) {
         } else if (Array.isArray(b[prop])) {
           throw new TypeError('Arrays are not supported by deepExtend');
         } else {
-          a[prop] = b[prop];
+          if (b[prop] === null && a[prop] !== undefined && allowDeletion === true) {
+            delete a[prop];
+          } else {
+            a[prop] = b[prop];
+          }
         }
       }
     }
@@ -11889,9 +12837,16 @@ exports.selectiveNotDeepExtend = function (props, a, b) {
             }
           }
         } else if (Array.isArray(b[prop])) {
-          throw new TypeError('Arrays are not supported by deepExtend');
+          a[prop] = [];
+          for (var i = 0; i < b[prop].length; i++) {
+            a[prop].push(b[prop][i]);
+          }
         } else {
-          a[prop] = b[prop];
+          if (b[prop] === null && a[prop] !== undefined && allowDeletion === true) {
+            delete a[prop];
+          } else {
+            a[prop] = b[prop];
+          }
         }
       }
     }
@@ -11930,7 +12885,11 @@ exports.deepExtend = function (a, b, protoExtend, allowDeletion) {
           a[prop].push(b[prop][i]);
         }
       } else {
-        a[prop] = b[prop];
+        if (b[prop] === null && a[prop] !== undefined && allowDeletion === true) {
+          delete a[prop];
+        } else {
+          a[prop] = b[prop];
+        }
       }
     }
   }
@@ -12009,11 +12968,11 @@ exports.convert = function (object, type) {
           // object is an ASP date
           return new Date(Number(match[1])); // parse number
         } else {
-          return moment(object).toDate(); // parse string
-        }
+            return moment(object).toDate(); // parse string
+          }
       } else {
-        throw new Error('Cannot convert object of type ' + exports.getType(object) + ' to type Date');
-      }
+          throw new Error('Cannot convert object of type ' + exports.getType(object) + ' to type Date');
+        }
 
     case 'Moment':
       if (exports.isNumber(object)) {
@@ -12030,11 +12989,11 @@ exports.convert = function (object, type) {
           // object is an ASP date
           return moment(Number(match[1])); // parse number
         } else {
-          return moment(object); // parse string
-        }
+            return moment(object); // parse string
+          }
       } else {
-        throw new Error('Cannot convert object of type ' + exports.getType(object) + ' to type Date');
-      }
+          throw new Error('Cannot convert object of type ' + exports.getType(object) + ' to type Date');
+        }
 
     case 'ISODate':
       if (exports.isNumber(object)) {
@@ -12049,11 +13008,11 @@ exports.convert = function (object, type) {
           // object is an ASP date
           return new Date(Number(match[1])).toISOString(); // parse number
         } else {
-          return new Date(object).toISOString(); // parse string
-        }
+            return new Date(object).toISOString(); // parse string
+          }
       } else {
-        throw new Error('Cannot convert object of type ' + exports.getType(object) + ' to type ISODate');
-      }
+          throw new Error('Cannot convert object of type ' + exports.getType(object) + ' to type ISODate');
+        }
 
     case 'ASPDate':
       if (exports.isNumber(object)) {
@@ -12067,8 +13026,8 @@ exports.convert = function (object, type) {
           // object is an ASP date
           value = new Date(Number(match[1])).valueOf(); // parse number
         } else {
-          value = new Date(object).valueOf(); // parse string
-        }
+            value = new Date(object).valueOf(); // parse string
+          }
         return '/Date(' + value + ')/';
       } else {
         throw new Error('Cannot convert object of type ' + exports.getType(object) + ' to type ASPDate');
@@ -12164,6 +13123,10 @@ exports.copyArray = function (arr) {
  */
 exports.getAbsoluteLeft = function (elem) {
   return elem.getBoundingClientRect().left;
+};
+
+exports.getAbsoluteRight = function (elem) {
+  return elem.getBoundingClientRect().right;
 };
 
 /**
@@ -12262,6 +13225,33 @@ exports.updateProperty = function (object, key, value) {
 };
 
 /**
+ * Throttle the given function to be only executed once every `wait` milliseconds
+ * @param {function} fn
+ * @param {number} wait    Time in milliseconds
+ * @returns {function} Returns the throttled function
+ */
+exports.throttle = function (fn, wait) {
+  var timeout = null;
+  var needExecution = false;
+
+  return function throttled() {
+    if (!timeout) {
+      needExecution = false;
+      fn();
+
+      timeout = setTimeout(function () {
+        timeout = null;
+        if (needExecution) {
+          throttled();
+        }
+      }, wait);
+    } else {
+      needExecution = true;
+    }
+  };
+};
+
+/**
  * Add and event listener. Works for all browsers
  * @param {Element}     element    An html element
  * @param {string}      action     The action, for example "click",
@@ -12273,13 +13263,13 @@ exports.addEventListener = function (element, action, listener, useCapture) {
   if (element.addEventListener) {
     if (useCapture === undefined) useCapture = false;
 
-    if (action === 'mousewheel' && navigator.userAgent.indexOf('Firefox') >= 0) {
-      action = 'DOMMouseScroll'; // For Firefox
+    if (action === "mousewheel" && navigator.userAgent.indexOf("Firefox") >= 0) {
+      action = "DOMMouseScroll"; // For Firefox
     }
 
     element.addEventListener(action, listener, useCapture);
   } else {
-    element.attachEvent('on' + action, listener); // IE browsers
+    element.attachEvent("on" + action, listener); // IE browsers
   }
 };
 
@@ -12295,14 +13285,14 @@ exports.removeEventListener = function (element, action, listener, useCapture) {
     // non-IE browsers
     if (useCapture === undefined) useCapture = false;
 
-    if (action === 'mousewheel' && navigator.userAgent.indexOf('Firefox') >= 0) {
-      action = 'DOMMouseScroll'; // For Firefox
+    if (action === "mousewheel" && navigator.userAgent.indexOf("Firefox") >= 0) {
+      action = "DOMMouseScroll"; // For Firefox
     }
 
     element.removeEventListener(action, listener, useCapture);
   } else {
     // IE browsers
-    element.detachEvent('on' + action, listener);
+    element.detachEvent("on" + action, listener);
   }
 };
 
@@ -12315,8 +13305,8 @@ exports.preventDefault = function (event) {
   if (event.preventDefault) {
     event.preventDefault(); // non-IE browsers
   } else {
-    event.returnValue = false; // IE browsers
-  }
+      event.returnValue = false; // IE browsers
+    }
 };
 
 /**
@@ -12481,17 +13471,17 @@ exports.hexToRGB = function (hex) {
  * @returns {*}
  */
 exports.overrideOpacity = function (color, opacity) {
-  if (color.indexOf('rgba') != -1) {
+  if (color.indexOf("rgba") != -1) {
     return color;
-  } else if (color.indexOf('rgb') != -1) {
-    var rgb = color.substr(color.indexOf('(') + 1).replace(')', '').split(',');
-    return 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + opacity + ')';
+  } else if (color.indexOf("rgb") != -1) {
+    var rgb = color.substr(color.indexOf("(") + 1).replace(")", "").split(",");
+    return "rgba(" + rgb[0] + "," + rgb[1] + "," + rgb[2] + "," + opacity + ")";
   } else {
     var rgb = exports.hexToRGB(color);
     if (rgb == null) {
       return color;
     } else {
-      return 'rgba(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ',' + opacity + ')';
+      return "rgba(" + rgb.r + "," + rgb.g + "," + rgb.b + "," + opacity + ")";
     }
   }
 };
@@ -12505,7 +13495,7 @@ exports.overrideOpacity = function (color, opacity) {
  * @constructor
  */
 exports.RGBToHex = function (red, green, blue) {
-  return '#' + ((1 << 24) + (red << 16) + (green << 8) + blue).toString(16).slice(1);
+  return "#" + ((1 << 24) + (red << 16) + (green << 8) + blue).toString(16).slice(1);
 };
 
 /**
@@ -12721,12 +13711,12 @@ exports.isValidHex = function (hex) {
 };
 
 exports.isValidRGB = function (rgb) {
-  rgb = rgb.replace(' ', '');
+  rgb = rgb.replace(" ", "");
   var isOk = /rgb\((\d{1,3}),(\d{1,3}),(\d{1,3})\)/i.test(rgb);
   return isOk;
 };
 exports.isValidRGBA = function (rgba) {
-  rgba = rgba.replace(' ', '');
+  rgba = rgba.replace(" ", "");
   var isOk = /rgba\((\d{1,3}),(\d{1,3}),(\d{1,3}),(.{1,3})\)/i.test(rgba);
   return isOk;
 };
@@ -12739,11 +13729,11 @@ exports.isValidRGBA = function (rgba) {
  * @returns {*}
  */
 exports.selectiveBridgeObject = function (fields, referenceObject) {
-  if (typeof referenceObject == 'object') {
+  if (typeof referenceObject == "object") {
     var objectTo = Object.create(referenceObject);
     for (var i = 0; i < fields.length; i++) {
       if (referenceObject.hasOwnProperty(fields[i])) {
-        if (typeof referenceObject[fields[i]] == 'object') {
+        if (typeof referenceObject[fields[i]] == "object") {
           objectTo[fields[i]] = exports.bridgeObject(referenceObject[fields[i]]);
         }
       }
@@ -12762,11 +13752,11 @@ exports.selectiveBridgeObject = function (fields, referenceObject) {
  * @returns {*}
  */
 exports.bridgeObject = function (referenceObject) {
-  if (typeof referenceObject == 'object') {
+  if (typeof referenceObject == "object") {
     var objectTo = Object.create(referenceObject);
     for (var i in referenceObject) {
       if (referenceObject.hasOwnProperty(i)) {
-        if (typeof referenceObject[i] == 'object') {
+        if (typeof referenceObject[i] == "object") {
           objectTo[i] = exports.bridgeObject(referenceObject[i]);
         }
       }
@@ -12778,20 +13768,37 @@ exports.bridgeObject = function (referenceObject) {
 };
 
 /**
+ * This method provides a stable sort implementation, very fast for presorted data
+ *
+ * @param a the array
+ * @param a order comparator
+ * @returns {the array}
+ */
+exports.insertSort = function (a, compare) {
+  for (var i = 0; i < a.length; i++) {
+    var k = a[i];
+    for (var j = i; j > 0 && compare(k, a[j - 1]) < 0; j--) {
+      a[j] = a[j - 1];
+    }
+    a[j] = k;
+  }
+  return a;
+};
+
+/**
  * this is used to set the options of subobjects in the options object. A requirement of these subobjects
  * is that they have an 'enabled' element which is optional for the user but mandatory for the program.
  *
  * @param [object] mergeTarget | this is either this.options or the options used for the groups.
  * @param [object] options     | options
  * @param [String] option      | this is the option key in the options argument
- * @private
  */
 exports.mergeOptions = function (mergeTarget, options, option) {
   var allowDeletion = arguments.length <= 3 || arguments[3] === undefined ? false : arguments[3];
+  var globalOptions = arguments.length <= 4 || arguments[4] === undefined ? {} : arguments[4];
 
   if (options[option] === null) {
-    mergeTarget[option] = undefined;
-    delete mergeTarget[option];
+    mergeTarget[option] = Object.create(globalOptions[option]);
   } else {
     if (options[option] !== undefined) {
       if (typeof options[option] === 'boolean') {
@@ -12815,13 +13822,13 @@ exports.mergeOptions = function (mergeTarget, options, option) {
  * this function will then iterate in both directions over this sorted list to find all visible items.
  *
  * @param {Item[]} orderedItems       | Items ordered by start
- * @param {function} searchFunction   | -1 is lower, 0 is found, 1 is higher
+ * @param {function} comparator       | -1 is lower, 0 is equal, 1 is higher
  * @param {String} field
  * @param {String} field2
  * @returns {number}
  * @private
  */
-exports.binarySearchCustom = function (orderedItems, searchFunction, field, field2) {
+exports.binarySearchCustom = function (orderedItems, comparator, field, field2) {
   var maxIterations = 10000;
   var iteration = 0;
   var low = 0;
@@ -12833,7 +13840,7 @@ exports.binarySearchCustom = function (orderedItems, searchFunction, field, fiel
     var item = orderedItems[middle];
     var value = field2 === undefined ? item[field] : item[field][field2];
 
-    var searchResult = searchFunction(value);
+    var searchResult = comparator(value);
     if (searchResult == 0) {
       // jihaa, found a visible item!
       return middle;
@@ -12860,15 +13867,20 @@ exports.binarySearchCustom = function (orderedItems, searchFunction, field, fiel
  * @param {{start: number, end: number}} target
  * @param {String} field
  * @param {String} sidePreference   'before' or 'after'
+ * @param {function} comparator an optional comparator, returning -1,0,1 for <,==,>.
  * @returns {number}
  * @private
  */
-exports.binarySearchValue = function (orderedItems, target, field, sidePreference) {
+exports.binarySearchValue = function (orderedItems, target, field, sidePreference, comparator) {
   var maxIterations = 10000;
   var iteration = 0;
   var low = 0;
   var high = orderedItems.length - 1;
   var prevValue, value, nextValue, middle;
+
+  var comparator = comparator != undefined ? comparator : function (a, b) {
+    return a == b ? 0 : a < b ? -1 : 1;
+  };
 
   while (low <= high && iteration < maxIterations) {
     // get a new guess
@@ -12877,18 +13889,18 @@ exports.binarySearchValue = function (orderedItems, target, field, sidePreferenc
     value = orderedItems[middle][field];
     nextValue = orderedItems[Math.min(orderedItems.length - 1, middle + 1)][field];
 
-    if (value == target) {
+    if (comparator(value, target) == 0) {
       // we found the target
       return middle;
-    } else if (prevValue < target && value > target) {
+    } else if (comparator(prevValue, target) < 0 && comparator(value, target) > 0) {
       // target is in between of the previous and the current
       return sidePreference == 'before' ? Math.max(0, middle - 1) : middle;
-    } else if (value < target && nextValue > target) {
+    } else if (comparator(value, target) < 0 && comparator(nextValue, target) > 0) {
       // target is in between of the current and the next
       return sidePreference == 'before' ? middle : Math.min(orderedItems.length - 1, middle + 1);
     } else {
       // didnt find the target, we need to change our boundaries.
-      if (value < target) {
+      if (comparator(value, target) < 0) {
         // it is too small --> increase low
         low = middle + 1;
       } else {
@@ -13130,15 +14142,15 @@ Emitter.prototype.hasListeners = function(event){
 };
 
 },{}],35:[function(require,module,exports){
-/*! Hammer.JS - v2.0.4 - 2014-09-28
+/*! Hammer.JS - v2.0.7 - 2016-04-22
  * http://hammerjs.github.io/
  *
- * Copyright (c) 2014 Jorik Tangelder;
+ * Copyright (c) 2016 Jorik Tangelder;
  * Licensed under the MIT license */
 (function(window, document, exportName, undefined) {
   'use strict';
 
-var VENDOR_PREFIXES = ['', 'webkit', 'moz', 'MS', 'ms', 'o'];
+var VENDOR_PREFIXES = ['', 'webkit', 'Moz', 'MS', 'ms', 'o'];
 var TEST_ELEMENT = document.createElement('div');
 
 var TYPE_FUNCTION = 'function';
@@ -13204,14 +14216,68 @@ function each(obj, iterator, context) {
 }
 
 /**
+ * wrap a method with a deprecation warning and stack trace
+ * @param {Function} method
+ * @param {String} name
+ * @param {String} message
+ * @returns {Function} A new function wrapping the supplied method.
+ */
+function deprecate(method, name, message) {
+    var deprecationMessage = 'DEPRECATED METHOD: ' + name + '\n' + message + ' AT \n';
+    return function() {
+        var e = new Error('get-stack-trace');
+        var stack = e && e.stack ? e.stack.replace(/^[^\(]+?[\n$]/gm, '')
+            .replace(/^\s+at\s+/gm, '')
+            .replace(/^Object.<anonymous>\s*\(/gm, '{anonymous}()@') : 'Unknown Stack Trace';
+
+        var log = window.console && (window.console.warn || window.console.log);
+        if (log) {
+            log.call(window.console, deprecationMessage, stack);
+        }
+        return method.apply(this, arguments);
+    };
+}
+
+/**
+ * extend object.
+ * means that properties in dest will be overwritten by the ones in src.
+ * @param {Object} target
+ * @param {...Object} objects_to_assign
+ * @returns {Object} target
+ */
+var assign;
+if (typeof Object.assign !== 'function') {
+    assign = function assign(target) {
+        if (target === undefined || target === null) {
+            throw new TypeError('Cannot convert undefined or null to object');
+        }
+
+        var output = Object(target);
+        for (var index = 1; index < arguments.length; index++) {
+            var source = arguments[index];
+            if (source !== undefined && source !== null) {
+                for (var nextKey in source) {
+                    if (source.hasOwnProperty(nextKey)) {
+                        output[nextKey] = source[nextKey];
+                    }
+                }
+            }
+        }
+        return output;
+    };
+} else {
+    assign = Object.assign;
+}
+
+/**
  * extend object.
  * means that properties in dest will be overwritten by the ones in src.
  * @param {Object} dest
  * @param {Object} src
- * @param {Boolean} [merge]
+ * @param {Boolean} [merge=false]
  * @returns {Object} dest
  */
-function extend(dest, src, merge) {
+var extend = deprecate(function extend(dest, src, merge) {
     var keys = Object.keys(src);
     var i = 0;
     while (i < keys.length) {
@@ -13221,7 +14287,7 @@ function extend(dest, src, merge) {
         i++;
     }
     return dest;
-}
+}, 'extend', 'Use `assign`.');
 
 /**
  * merge the values from src in the dest.
@@ -13230,9 +14296,9 @@ function extend(dest, src, merge) {
  * @param {Object} src
  * @returns {Object} dest
  */
-function merge(dest, src) {
+var merge = deprecate(function merge(dest, src) {
     return extend(dest, src, true);
-}
+}, 'merge', 'Use `assign`.');
 
 /**
  * simple class inheritance
@@ -13249,7 +14315,7 @@ function inherit(child, base, properties) {
     childP._super = baseP;
 
     if (properties) {
-        extend(childP, properties);
+        assign(childP, properties);
     }
 }
 
@@ -13452,8 +14518,8 @@ function uniqueId() {
  * @returns {DocumentView|Window}
  */
 function getWindowForElement(element) {
-    var doc = element.ownerDocument;
-    return (doc.defaultView || doc.parentWindow);
+    var doc = element.ownerDocument || element;
+    return (doc.defaultView || doc.parentWindow || window);
 }
 
 var MOBILE_REGEX = /mobile|tablet|ip(ad|hone|od)|android/i;
@@ -13632,8 +14698,16 @@ function computeInputData(manager, input) {
     computeDeltaXY(session, input);
     input.offsetDirection = getDirection(input.deltaX, input.deltaY);
 
+    var overallVelocity = getVelocity(input.deltaTime, input.deltaX, input.deltaY);
+    input.overallVelocityX = overallVelocity.x;
+    input.overallVelocityY = overallVelocity.y;
+    input.overallVelocity = (abs(overallVelocity.x) > abs(overallVelocity.y)) ? overallVelocity.x : overallVelocity.y;
+
     input.scale = firstMultiple ? getScale(firstMultiple.pointers, pointers) : 1;
     input.rotation = firstMultiple ? getRotation(firstMultiple.pointers, pointers) : 0;
+
+    input.maxPointers = !session.prevInput ? input.pointers.length : ((input.pointers.length >
+        session.prevInput.maxPointers) ? input.pointers.length : session.prevInput.maxPointers);
 
     computeIntervalInputData(session, input);
 
@@ -13678,8 +14752,8 @@ function computeIntervalInputData(session, input) {
         velocity, velocityX, velocityY, direction;
 
     if (input.eventType != INPUT_CANCEL && (deltaTime > COMPUTE_INTERVAL || last.velocity === undefined)) {
-        var deltaX = last.deltaX - input.deltaX;
-        var deltaY = last.deltaY - input.deltaY;
+        var deltaX = input.deltaX - last.deltaX;
+        var deltaY = input.deltaY - last.deltaY;
 
         var v = getVelocity(deltaTime, deltaX, deltaY);
         velocityX = v.x;
@@ -13784,9 +14858,9 @@ function getDirection(x, y) {
     }
 
     if (abs(x) >= abs(y)) {
-        return x > 0 ? DIRECTION_LEFT : DIRECTION_RIGHT;
+        return x < 0 ? DIRECTION_LEFT : DIRECTION_RIGHT;
     }
-    return y > 0 ? DIRECTION_UP : DIRECTION_DOWN;
+    return y < 0 ? DIRECTION_UP : DIRECTION_DOWN;
 }
 
 /**
@@ -13829,7 +14903,7 @@ function getAngle(p1, p2, props) {
  * @return {Number} rotation
  */
 function getRotation(start, end) {
-    return getAngle(end[1], end[0], PROPS_CLIENT_XY) - getAngle(start[1], start[0], PROPS_CLIENT_XY);
+    return getAngle(end[1], end[0], PROPS_CLIENT_XY) + getAngle(start[1], start[0], PROPS_CLIENT_XY);
 }
 
 /**
@@ -13861,7 +14935,6 @@ function MouseInput() {
     this.evEl = MOUSE_ELEMENT_EVENTS;
     this.evWin = MOUSE_WINDOW_EVENTS;
 
-    this.allow = true; // used by Input.TouchMouse to disable mouse events
     this.pressed = false; // mousedown state
 
     Input.apply(this, arguments);
@@ -13884,8 +14957,8 @@ inherit(MouseInput, Input, {
             eventType = INPUT_END;
         }
 
-        // mouse must be down, and mouse events are allowed (see the TouchMouse input)
-        if (!this.pressed || !this.allow) {
+        // mouse must be down
+        if (!this.pressed) {
             return;
         }
 
@@ -13922,7 +14995,7 @@ var POINTER_ELEMENT_EVENTS = 'pointerdown';
 var POINTER_WINDOW_EVENTS = 'pointermove pointerup pointercancel';
 
 // IE10 has prefixed support, and case-sensitive
-if (window.MSPointerEvent) {
+if (window.MSPointerEvent && !window.PointerEvent) {
     POINTER_ELEMENT_EVENTS = 'MSPointerDown';
     POINTER_WINDOW_EVENTS = 'MSPointerMove MSPointerUp MSPointerCancel';
 }
@@ -14168,12 +15241,19 @@ function getTouches(ev, type) {
  * @constructor
  * @extends Input
  */
+
+var DEDUP_TIMEOUT = 2500;
+var DEDUP_DISTANCE = 25;
+
 function TouchMouseInput() {
     Input.apply(this, arguments);
 
     var handler = bindFn(this.handler, this);
     this.touch = new TouchInput(this.manager, handler);
     this.mouse = new MouseInput(this.manager, handler);
+
+    this.primaryTouch = null;
+    this.lastTouches = [];
 }
 
 inherit(TouchMouseInput, Input, {
@@ -14187,17 +15267,15 @@ inherit(TouchMouseInput, Input, {
         var isTouch = (inputData.pointerType == INPUT_TYPE_TOUCH),
             isMouse = (inputData.pointerType == INPUT_TYPE_MOUSE);
 
-        // when we're in a touch event, so  block all upcoming mouse events
-        // most mobile browser also emit mouseevents, right after touchstart
-        if (isTouch) {
-            this.mouse.allow = false;
-        } else if (isMouse && !this.mouse.allow) {
+        if (isMouse && inputData.sourceCapabilities && inputData.sourceCapabilities.firesTouchEvents) {
             return;
         }
 
-        // reset the allowMouse when we're done
-        if (inputEvent & (INPUT_END | INPUT_CANCEL)) {
-            this.mouse.allow = true;
+        // when we're in a touch event, record touches to  de-dupe synthetic mouse event
+        if (isTouch) {
+            recordTouches.call(this, inputEvent, inputData);
+        } else if (isMouse && isSyntheticEvent.call(this, inputData)) {
+            return;
         }
 
         this.callback(manager, inputEvent, inputData);
@@ -14212,6 +15290,44 @@ inherit(TouchMouseInput, Input, {
     }
 });
 
+function recordTouches(eventType, eventData) {
+    if (eventType & INPUT_START) {
+        this.primaryTouch = eventData.changedPointers[0].identifier;
+        setLastTouch.call(this, eventData);
+    } else if (eventType & (INPUT_END | INPUT_CANCEL)) {
+        setLastTouch.call(this, eventData);
+    }
+}
+
+function setLastTouch(eventData) {
+    var touch = eventData.changedPointers[0];
+
+    if (touch.identifier === this.primaryTouch) {
+        var lastTouch = {x: touch.clientX, y: touch.clientY};
+        this.lastTouches.push(lastTouch);
+        var lts = this.lastTouches;
+        var removeLastTouch = function() {
+            var i = lts.indexOf(lastTouch);
+            if (i > -1) {
+                lts.splice(i, 1);
+            }
+        };
+        setTimeout(removeLastTouch, DEDUP_TIMEOUT);
+    }
+}
+
+function isSyntheticEvent(eventData) {
+    var x = eventData.srcEvent.clientX, y = eventData.srcEvent.clientY;
+    for (var i = 0; i < this.lastTouches.length; i++) {
+        var t = this.lastTouches[i];
+        var dx = Math.abs(x - t.x), dy = Math.abs(y - t.y);
+        if (dx <= DEDUP_DISTANCE && dy <= DEDUP_DISTANCE) {
+            return true;
+        }
+    }
+    return false;
+}
+
 var PREFIXED_TOUCH_ACTION = prefixed(TEST_ELEMENT.style, 'touchAction');
 var NATIVE_TOUCH_ACTION = PREFIXED_TOUCH_ACTION !== undefined;
 
@@ -14222,6 +15338,7 @@ var TOUCH_ACTION_MANIPULATION = 'manipulation'; // not implemented
 var TOUCH_ACTION_NONE = 'none';
 var TOUCH_ACTION_PAN_X = 'pan-x';
 var TOUCH_ACTION_PAN_Y = 'pan-y';
+var TOUCH_ACTION_MAP = getTouchActionProps();
 
 /**
  * Touch Action
@@ -14246,7 +15363,7 @@ TouchAction.prototype = {
             value = this.compute();
         }
 
-        if (NATIVE_TOUCH_ACTION) {
+        if (NATIVE_TOUCH_ACTION && this.manager.element.style && TOUCH_ACTION_MAP[value]) {
             this.manager.element.style[PREFIXED_TOUCH_ACTION] = value;
         }
         this.actions = value.toLowerCase().trim();
@@ -14278,11 +15395,6 @@ TouchAction.prototype = {
      * @param {Object} input
      */
     preventDefaults: function(input) {
-        // not needed with native support for the touchAction property
-        if (NATIVE_TOUCH_ACTION) {
-            return;
-        }
-
         var srcEvent = input.srcEvent;
         var direction = input.offsetDirection;
 
@@ -14293,9 +15405,26 @@ TouchAction.prototype = {
         }
 
         var actions = this.actions;
-        var hasNone = inStr(actions, TOUCH_ACTION_NONE);
-        var hasPanY = inStr(actions, TOUCH_ACTION_PAN_Y);
-        var hasPanX = inStr(actions, TOUCH_ACTION_PAN_X);
+        var hasNone = inStr(actions, TOUCH_ACTION_NONE) && !TOUCH_ACTION_MAP[TOUCH_ACTION_NONE];
+        var hasPanY = inStr(actions, TOUCH_ACTION_PAN_Y) && !TOUCH_ACTION_MAP[TOUCH_ACTION_PAN_Y];
+        var hasPanX = inStr(actions, TOUCH_ACTION_PAN_X) && !TOUCH_ACTION_MAP[TOUCH_ACTION_PAN_X];
+
+        if (hasNone) {
+            //do not prevent defaults if this is a tap gesture
+
+            var isTapPointer = input.pointers.length === 1;
+            var isTapMovement = input.distance < 2;
+            var isTapTouchTime = input.deltaTime < 250;
+
+            if (isTapPointer && isTapMovement && isTapTouchTime) {
+                return;
+            }
+        }
+
+        if (hasPanX && hasPanY) {
+            // `pan-x pan-y` means browser handles all scrolling/panning, do not prevent
+            return;
+        }
 
         if (hasNone ||
             (hasPanY && direction & DIRECTION_HORIZONTAL) ||
@@ -14328,9 +15457,12 @@ function cleanTouchActions(actions) {
     var hasPanX = inStr(actions, TOUCH_ACTION_PAN_X);
     var hasPanY = inStr(actions, TOUCH_ACTION_PAN_Y);
 
-    // pan-x and pan-y can be combined
+    // if both pan-x and pan-y are set (different recognizers
+    // for different directions, e.g. horizontal pan but vertical swipe?)
+    // we need none (as otherwise with pan-x pan-y combined none of these
+    // recognizers will work, since the browser would handle all panning
     if (hasPanX && hasPanY) {
-        return TOUCH_ACTION_PAN_X + ' ' + TOUCH_ACTION_PAN_Y;
+        return TOUCH_ACTION_NONE;
     }
 
     // pan-x OR pan-y
@@ -14344,6 +15476,21 @@ function cleanTouchActions(actions) {
     }
 
     return TOUCH_ACTION_AUTO;
+}
+
+function getTouchActionProps() {
+    if (!NATIVE_TOUCH_ACTION) {
+        return false;
+    }
+    var touchMap = {};
+    var cssSupports = window.CSS && window.CSS.supports;
+    ['auto', 'manipulation', 'pan-y', 'pan-x', 'pan-x pan-y', 'none'].forEach(function(val) {
+
+        // If css.supports is not supported but there is native touch-action assume it supports
+        // all values. This is the case for IE 10 and 11.
+        touchMap[val] = cssSupports ? window.CSS.supports('touch-action', val) : true;
+    });
+    return touchMap;
 }
 
 /**
@@ -14388,10 +15535,11 @@ var STATE_FAILED = 32;
  * @param {Object} options
  */
 function Recognizer(options) {
+    this.options = assign({}, this.defaults, options || {});
+
     this.id = uniqueId();
 
     this.manager = null;
-    this.options = merge(options || {}, this.defaults);
 
     // default is enable true
     this.options.enable = ifUndefined(this.options.enable, true);
@@ -14415,7 +15563,7 @@ Recognizer.prototype = {
      * @return {Recognizer}
      */
     set: function(options) {
-        extend(this.options, options);
+        assign(this.options, options);
 
         // also update the touchAction, in case something changed about the directions/enabled state
         this.manager && this.manager.touchAction.update();
@@ -14519,20 +15667,24 @@ Recognizer.prototype = {
         var self = this;
         var state = this.state;
 
-        function emit(withState) {
-            self.manager.emit(self.options.event + (withState ? stateStr(state) : ''), input);
+        function emit(event) {
+            self.manager.emit(event, input);
         }
 
         // 'panstart' and 'panmove'
         if (state < STATE_ENDED) {
-            emit(true);
+            emit(self.options.event + stateStr(state));
         }
 
-        emit(); // simple 'eventName' events
+        emit(self.options.event); // simple 'eventName' events
+
+        if (input.additionalEvent) { // additional event(panleft, panright, pinchin, pinchout...)
+            emit(input.additionalEvent);
+        }
 
         // panend and pancancel
         if (state >= STATE_ENDED) {
-            emit(true);
+            emit(self.options.event + stateStr(state));
         }
     },
 
@@ -14572,7 +15724,7 @@ Recognizer.prototype = {
     recognize: function(inputData) {
         // make a new copy of the inputData
         // so we can change the inputData without messing up the other recognizers
-        var inputDataClone = extend({}, inputData);
+        var inputDataClone = assign({}, inputData);
 
         // is is enabled and allow recognizing?
         if (!boolOrFn(this.options.enable, [this, inputDataClone])) {
@@ -14797,14 +15949,15 @@ inherit(PanRecognizer, AttrRecognizer, {
     },
 
     emit: function(input) {
+
         this.pX = input.deltaX;
         this.pY = input.deltaY;
 
         var direction = directionStr(input.direction);
-        if (direction) {
-            this.manager.emit(this.options.event + direction, input);
-        }
 
+        if (direction) {
+            input.additionalEvent = this.options.event + direction;
+        }
         this._super.emit.call(this, input);
     }
 });
@@ -14840,11 +15993,11 @@ inherit(PinchRecognizer, AttrRecognizer, {
     },
 
     emit: function(input) {
-        this._super.emit.call(this, input);
         if (input.scale !== 1) {
             var inOut = input.scale < 1 ? 'in' : 'out';
-            this.manager.emit(this.options.event + inOut, input);
+            input.additionalEvent = this.options.event + inOut;
         }
+        this._super.emit.call(this, input);
     }
 });
 
@@ -14869,8 +16022,8 @@ inherit(PressRecognizer, Recognizer, {
     defaults: {
         event: 'press',
         pointers: 1,
-        time: 500, // minimal time of the pointer to be pressed
-        threshold: 5 // a minimal movement is ok, but keep it low
+        time: 251, // minimal time of the pointer to be pressed
+        threshold: 9 // a minimal movement is ok, but keep it low
     },
 
     getTouchAction: function() {
@@ -14968,7 +16121,7 @@ inherit(SwipeRecognizer, AttrRecognizer, {
     defaults: {
         event: 'swipe',
         threshold: 10,
-        velocity: 0.65,
+        velocity: 0.3,
         direction: DIRECTION_HORIZONTAL | DIRECTION_VERTICAL,
         pointers: 1
     },
@@ -14982,21 +16135,22 @@ inherit(SwipeRecognizer, AttrRecognizer, {
         var velocity;
 
         if (direction & (DIRECTION_HORIZONTAL | DIRECTION_VERTICAL)) {
-            velocity = input.velocity;
+            velocity = input.overallVelocity;
         } else if (direction & DIRECTION_HORIZONTAL) {
-            velocity = input.velocityX;
+            velocity = input.overallVelocityX;
         } else if (direction & DIRECTION_VERTICAL) {
-            velocity = input.velocityY;
+            velocity = input.overallVelocityY;
         }
 
         return this._super.attrTest.call(this, input) &&
-            direction & input.direction &&
+            direction & input.offsetDirection &&
             input.distance > this.options.threshold &&
+            input.maxPointers == this.options.pointers &&
             abs(velocity) > this.options.velocity && input.eventType & INPUT_END;
     },
 
     emit: function(input) {
-        var direction = directionStr(input.direction);
+        var direction = directionStr(input.offsetDirection);
         if (direction) {
             this.manager.emit(this.options.event + direction, input);
         }
@@ -15039,7 +16193,7 @@ inherit(TapRecognizer, Recognizer, {
         taps: 1,
         interval: 300, // max time between the multi-tap taps
         time: 250, // max time of the pointer to be down (like finger on the screen)
-        threshold: 2, // a minimal movement is ok, but keep it low
+        threshold: 9, // a minimal movement is ok, but keep it low
         posThreshold: 10 // a multi-tap can be a bit off the initial position
     },
 
@@ -15113,7 +16267,7 @@ inherit(TapRecognizer, Recognizer, {
     },
 
     emit: function() {
-        if (this.state == STATE_RECOGNIZED ) {
+        if (this.state == STATE_RECOGNIZED) {
             this._input.tapCount = this.count;
             this.manager.emit(this.options.event, this._input);
         }
@@ -15121,7 +16275,7 @@ inherit(TapRecognizer, Recognizer, {
 });
 
 /**
- * Simple way to create an manager with a default set of recognizers.
+ * Simple way to create a manager with a default set of recognizers.
  * @param {HTMLElement} element
  * @param {Object} [options]
  * @constructor
@@ -15135,7 +16289,7 @@ function Hammer(element, options) {
 /**
  * @const {string}
  */
-Hammer.VERSION = '2.0.4';
+Hammer.VERSION = '2.0.7';
 
 /**
  * default settings
@@ -15187,12 +16341,12 @@ Hammer.defaults = {
      */
     preset: [
         // RecognizerClass, options, [recognizeWith, ...], [requireFailure, ...]
-        [RotateRecognizer, { enable: false }],
-        [PinchRecognizer, { enable: false }, ['rotate']],
-        [SwipeRecognizer,{ direction: DIRECTION_HORIZONTAL }],
-        [PanRecognizer, { direction: DIRECTION_HORIZONTAL }, ['swipe']],
+        [RotateRecognizer, {enable: false}],
+        [PinchRecognizer, {enable: false}, ['rotate']],
+        [SwipeRecognizer, {direction: DIRECTION_HORIZONTAL}],
+        [PanRecognizer, {direction: DIRECTION_HORIZONTAL}, ['swipe']],
         [TapRecognizer],
-        [TapRecognizer, { event: 'doubletap', taps: 2 }, ['tap']],
+        [TapRecognizer, {event: 'doubletap', taps: 2}, ['tap']],
         [PressRecognizer]
     ],
 
@@ -15259,14 +16413,14 @@ var FORCED_STOP = 2;
  * @constructor
  */
 function Manager(element, options) {
-    options = options || {};
+    this.options = assign({}, Hammer.defaults, options || {});
 
-    this.options = merge(options, Hammer.defaults);
     this.options.inputTarget = this.options.inputTarget || element;
 
     this.handlers = {};
     this.session = {};
     this.recognizers = [];
+    this.oldCssProps = {};
 
     this.element = element;
     this.input = createInputInstance(this);
@@ -15274,7 +16428,7 @@ function Manager(element, options) {
 
     toggleCssProps(this, true);
 
-    each(options.recognizers, function(item) {
+    each(this.options.recognizers, function(item) {
         var recognizer = this.add(new (item[0])(item[1]));
         item[2] && recognizer.recognizeWith(item[2]);
         item[3] && recognizer.requireFailure(item[3]);
@@ -15288,7 +16442,7 @@ Manager.prototype = {
      * @returns {Manager}
      */
     set: function(options) {
-        extend(this.options, options);
+        assign(this.options, options);
 
         // Options that need a little more setup
         if (options.touchAction) {
@@ -15422,11 +16576,19 @@ Manager.prototype = {
             return this;
         }
 
-        var recognizers = this.recognizers;
         recognizer = this.get(recognizer);
-        recognizers.splice(inArray(recognizers, recognizer), 1);
 
-        this.touchAction.update();
+        // let's make sure this recognizer exists
+        if (recognizer) {
+            var recognizers = this.recognizers;
+            var index = inArray(recognizers, recognizer);
+
+            if (index !== -1) {
+                recognizers.splice(index, 1);
+                this.touchAction.update();
+            }
+        }
+
         return this;
     },
 
@@ -15437,6 +16599,13 @@ Manager.prototype = {
      * @returns {EventEmitter} this
      */
     on: function(events, handler) {
+        if (events === undefined) {
+            return;
+        }
+        if (handler === undefined) {
+            return;
+        }
+
         var handlers = this.handlers;
         each(splitStr(events), function(event) {
             handlers[event] = handlers[event] || [];
@@ -15452,12 +16621,16 @@ Manager.prototype = {
      * @returns {EventEmitter} this
      */
     off: function(events, handler) {
+        if (events === undefined) {
+            return;
+        }
+
         var handlers = this.handlers;
         each(splitStr(events), function(event) {
             if (!handler) {
                 delete handlers[event];
             } else {
-                handlers[event].splice(inArray(handlers[event], handler), 1);
+                handlers[event] && handlers[event].splice(inArray(handlers[event], handler), 1);
             }
         });
         return this;
@@ -15513,9 +16686,22 @@ Manager.prototype = {
  */
 function toggleCssProps(manager, add) {
     var element = manager.element;
+    if (!element.style) {
+        return;
+    }
+    var prop;
     each(manager.options.cssProps, function(value, name) {
-        element.style[prefixed(element.style, name)] = add ? value : '';
+        prop = prefixed(element.style, name);
+        if (add) {
+            manager.oldCssProps[prop] = element.style[prop];
+            element.style[prop] = value;
+        } else {
+            element.style[prop] = manager.oldCssProps[prop] || '';
+        }
     });
+    if (!add) {
+        manager.oldCssProps = {};
+    }
 }
 
 /**
@@ -15530,7 +16716,7 @@ function triggerDomEvent(event, data) {
     data.target.dispatchEvent(gestureEvent);
 }
 
-extend(Hammer, {
+assign(Hammer, {
     INPUT_START: INPUT_START,
     INPUT_MOVE: INPUT_MOVE,
     INPUT_END: INPUT_END,
@@ -15577,12 +16763,18 @@ extend(Hammer, {
     each: each,
     merge: merge,
     extend: extend,
+    assign: assign,
     inherit: inherit,
     bindFn: bindFn,
     prefixed: prefixed
 });
 
-if (typeof define == TYPE_FUNCTION && define.amd) {
+// this prevents errors when Hammer is loaded in the presence of an AMD
+//  style loader but by script tag, not by the loader.
+var freeGlobal = (typeof window !== 'undefined' ? window : (typeof self !== 'undefined' ? self : {})); // jshint ignore:line
+freeGlobal.Hammer = Hammer;
+
+if (typeof define === 'function' && define.amd) {
     define(function() {
         return Hammer;
     });
@@ -15790,6 +16982,4047 @@ if (typeof define == TYPE_FUNCTION && define.amd) {
 
 
 },{}],37:[function(require,module,exports){
+//! moment.js
+//! version : 2.13.0
+//! authors : Tim Wood, Iskren Chernev, Moment.js contributors
+//! license : MIT
+//! momentjs.com
+
+;(function (global, factory) {
+    typeof exports === 'object' && typeof module !== 'undefined' ? module.exports = factory() :
+    typeof define === 'function' && define.amd ? define(factory) :
+    global.moment = factory()
+}(this, function () { 'use strict';
+
+    var hookCallback;
+
+    function utils_hooks__hooks () {
+        return hookCallback.apply(null, arguments);
+    }
+
+    // This is done to register the method called with moment()
+    // without creating circular dependencies.
+    function setHookCallback (callback) {
+        hookCallback = callback;
+    }
+
+    function isArray(input) {
+        return input instanceof Array || Object.prototype.toString.call(input) === '[object Array]';
+    }
+
+    function isDate(input) {
+        return input instanceof Date || Object.prototype.toString.call(input) === '[object Date]';
+    }
+
+    function map(arr, fn) {
+        var res = [], i;
+        for (i = 0; i < arr.length; ++i) {
+            res.push(fn(arr[i], i));
+        }
+        return res;
+    }
+
+    function hasOwnProp(a, b) {
+        return Object.prototype.hasOwnProperty.call(a, b);
+    }
+
+    function extend(a, b) {
+        for (var i in b) {
+            if (hasOwnProp(b, i)) {
+                a[i] = b[i];
+            }
+        }
+
+        if (hasOwnProp(b, 'toString')) {
+            a.toString = b.toString;
+        }
+
+        if (hasOwnProp(b, 'valueOf')) {
+            a.valueOf = b.valueOf;
+        }
+
+        return a;
+    }
+
+    function create_utc__createUTC (input, format, locale, strict) {
+        return createLocalOrUTC(input, format, locale, strict, true).utc();
+    }
+
+    function defaultParsingFlags() {
+        // We need to deep clone this object.
+        return {
+            empty           : false,
+            unusedTokens    : [],
+            unusedInput     : [],
+            overflow        : -2,
+            charsLeftOver   : 0,
+            nullInput       : false,
+            invalidMonth    : null,
+            invalidFormat   : false,
+            userInvalidated : false,
+            iso             : false,
+            parsedDateParts : [],
+            meridiem        : null
+        };
+    }
+
+    function getParsingFlags(m) {
+        if (m._pf == null) {
+            m._pf = defaultParsingFlags();
+        }
+        return m._pf;
+    }
+
+    var some;
+    if (Array.prototype.some) {
+        some = Array.prototype.some;
+    } else {
+        some = function (fun) {
+            var t = Object(this);
+            var len = t.length >>> 0;
+
+            for (var i = 0; i < len; i++) {
+                if (i in t && fun.call(this, t[i], i, t)) {
+                    return true;
+                }
+            }
+
+            return false;
+        };
+    }
+
+    function valid__isValid(m) {
+        if (m._isValid == null) {
+            var flags = getParsingFlags(m);
+            var parsedParts = some.call(flags.parsedDateParts, function (i) {
+                return i != null;
+            });
+            m._isValid = !isNaN(m._d.getTime()) &&
+                flags.overflow < 0 &&
+                !flags.empty &&
+                !flags.invalidMonth &&
+                !flags.invalidWeekday &&
+                !flags.nullInput &&
+                !flags.invalidFormat &&
+                !flags.userInvalidated &&
+                (!flags.meridiem || (flags.meridiem && parsedParts));
+
+            if (m._strict) {
+                m._isValid = m._isValid &&
+                    flags.charsLeftOver === 0 &&
+                    flags.unusedTokens.length === 0 &&
+                    flags.bigHour === undefined;
+            }
+        }
+        return m._isValid;
+    }
+
+    function valid__createInvalid (flags) {
+        var m = create_utc__createUTC(NaN);
+        if (flags != null) {
+            extend(getParsingFlags(m), flags);
+        }
+        else {
+            getParsingFlags(m).userInvalidated = true;
+        }
+
+        return m;
+    }
+
+    function isUndefined(input) {
+        return input === void 0;
+    }
+
+    // Plugins that add properties should also add the key here (null value),
+    // so we can properly clone ourselves.
+    var momentProperties = utils_hooks__hooks.momentProperties = [];
+
+    function copyConfig(to, from) {
+        var i, prop, val;
+
+        if (!isUndefined(from._isAMomentObject)) {
+            to._isAMomentObject = from._isAMomentObject;
+        }
+        if (!isUndefined(from._i)) {
+            to._i = from._i;
+        }
+        if (!isUndefined(from._f)) {
+            to._f = from._f;
+        }
+        if (!isUndefined(from._l)) {
+            to._l = from._l;
+        }
+        if (!isUndefined(from._strict)) {
+            to._strict = from._strict;
+        }
+        if (!isUndefined(from._tzm)) {
+            to._tzm = from._tzm;
+        }
+        if (!isUndefined(from._isUTC)) {
+            to._isUTC = from._isUTC;
+        }
+        if (!isUndefined(from._offset)) {
+            to._offset = from._offset;
+        }
+        if (!isUndefined(from._pf)) {
+            to._pf = getParsingFlags(from);
+        }
+        if (!isUndefined(from._locale)) {
+            to._locale = from._locale;
+        }
+
+        if (momentProperties.length > 0) {
+            for (i in momentProperties) {
+                prop = momentProperties[i];
+                val = from[prop];
+                if (!isUndefined(val)) {
+                    to[prop] = val;
+                }
+            }
+        }
+
+        return to;
+    }
+
+    var updateInProgress = false;
+
+    // Moment prototype object
+    function Moment(config) {
+        copyConfig(this, config);
+        this._d = new Date(config._d != null ? config._d.getTime() : NaN);
+        // Prevent infinite loop in case updateOffset creates new moment
+        // objects.
+        if (updateInProgress === false) {
+            updateInProgress = true;
+            utils_hooks__hooks.updateOffset(this);
+            updateInProgress = false;
+        }
+    }
+
+    function isMoment (obj) {
+        return obj instanceof Moment || (obj != null && obj._isAMomentObject != null);
+    }
+
+    function absFloor (number) {
+        if (number < 0) {
+            return Math.ceil(number);
+        } else {
+            return Math.floor(number);
+        }
+    }
+
+    function toInt(argumentForCoercion) {
+        var coercedNumber = +argumentForCoercion,
+            value = 0;
+
+        if (coercedNumber !== 0 && isFinite(coercedNumber)) {
+            value = absFloor(coercedNumber);
+        }
+
+        return value;
+    }
+
+    // compare two arrays, return the number of differences
+    function compareArrays(array1, array2, dontConvert) {
+        var len = Math.min(array1.length, array2.length),
+            lengthDiff = Math.abs(array1.length - array2.length),
+            diffs = 0,
+            i;
+        for (i = 0; i < len; i++) {
+            if ((dontConvert && array1[i] !== array2[i]) ||
+                (!dontConvert && toInt(array1[i]) !== toInt(array2[i]))) {
+                diffs++;
+            }
+        }
+        return diffs + lengthDiff;
+    }
+
+    function warn(msg) {
+        if (utils_hooks__hooks.suppressDeprecationWarnings === false &&
+                (typeof console !==  'undefined') && console.warn) {
+            console.warn('Deprecation warning: ' + msg);
+        }
+    }
+
+    function deprecate(msg, fn) {
+        var firstTime = true;
+
+        return extend(function () {
+            if (utils_hooks__hooks.deprecationHandler != null) {
+                utils_hooks__hooks.deprecationHandler(null, msg);
+            }
+            if (firstTime) {
+                warn(msg + '\nArguments: ' + Array.prototype.slice.call(arguments).join(', ') + '\n' + (new Error()).stack);
+                firstTime = false;
+            }
+            return fn.apply(this, arguments);
+        }, fn);
+    }
+
+    var deprecations = {};
+
+    function deprecateSimple(name, msg) {
+        if (utils_hooks__hooks.deprecationHandler != null) {
+            utils_hooks__hooks.deprecationHandler(name, msg);
+        }
+        if (!deprecations[name]) {
+            warn(msg);
+            deprecations[name] = true;
+        }
+    }
+
+    utils_hooks__hooks.suppressDeprecationWarnings = false;
+    utils_hooks__hooks.deprecationHandler = null;
+
+    function isFunction(input) {
+        return input instanceof Function || Object.prototype.toString.call(input) === '[object Function]';
+    }
+
+    function isObject(input) {
+        return Object.prototype.toString.call(input) === '[object Object]';
+    }
+
+    function locale_set__set (config) {
+        var prop, i;
+        for (i in config) {
+            prop = config[i];
+            if (isFunction(prop)) {
+                this[i] = prop;
+            } else {
+                this['_' + i] = prop;
+            }
+        }
+        this._config = config;
+        // Lenient ordinal parsing accepts just a number in addition to
+        // number + (possibly) stuff coming from _ordinalParseLenient.
+        this._ordinalParseLenient = new RegExp(this._ordinalParse.source + '|' + (/\d{1,2}/).source);
+    }
+
+    function mergeConfigs(parentConfig, childConfig) {
+        var res = extend({}, parentConfig), prop;
+        for (prop in childConfig) {
+            if (hasOwnProp(childConfig, prop)) {
+                if (isObject(parentConfig[prop]) && isObject(childConfig[prop])) {
+                    res[prop] = {};
+                    extend(res[prop], parentConfig[prop]);
+                    extend(res[prop], childConfig[prop]);
+                } else if (childConfig[prop] != null) {
+                    res[prop] = childConfig[prop];
+                } else {
+                    delete res[prop];
+                }
+            }
+        }
+        return res;
+    }
+
+    function Locale(config) {
+        if (config != null) {
+            this.set(config);
+        }
+    }
+
+    var keys;
+
+    if (Object.keys) {
+        keys = Object.keys;
+    } else {
+        keys = function (obj) {
+            var i, res = [];
+            for (i in obj) {
+                if (hasOwnProp(obj, i)) {
+                    res.push(i);
+                }
+            }
+            return res;
+        };
+    }
+
+    // internal storage for locale config files
+    var locales = {};
+    var globalLocale;
+
+    function normalizeLocale(key) {
+        return key ? key.toLowerCase().replace('_', '-') : key;
+    }
+
+    // pick the locale from the array
+    // try ['en-au', 'en-gb'] as 'en-au', 'en-gb', 'en', as in move through the list trying each
+    // substring from most specific to least, but move to the next array item if it's a more specific variant than the current root
+    function chooseLocale(names) {
+        var i = 0, j, next, locale, split;
+
+        while (i < names.length) {
+            split = normalizeLocale(names[i]).split('-');
+            j = split.length;
+            next = normalizeLocale(names[i + 1]);
+            next = next ? next.split('-') : null;
+            while (j > 0) {
+                locale = loadLocale(split.slice(0, j).join('-'));
+                if (locale) {
+                    return locale;
+                }
+                if (next && next.length >= j && compareArrays(split, next, true) >= j - 1) {
+                    //the next array item is better than a shallower substring of this one
+                    break;
+                }
+                j--;
+            }
+            i++;
+        }
+        return null;
+    }
+
+    function loadLocale(name) {
+        var oldLocale = null;
+        // TODO: Find a better way to register and load all the locales in Node
+        if (!locales[name] && (typeof module !== 'undefined') &&
+                module && module.exports) {
+            try {
+                oldLocale = globalLocale._abbr;
+                require('./locale/' + name);
+                // because defineLocale currently also sets the global locale, we
+                // want to undo that for lazy loaded locales
+                locale_locales__getSetGlobalLocale(oldLocale);
+            } catch (e) { }
+        }
+        return locales[name];
+    }
+
+    // This function will load locale and then set the global locale.  If
+    // no arguments are passed in, it will simply return the current global
+    // locale key.
+    function locale_locales__getSetGlobalLocale (key, values) {
+        var data;
+        if (key) {
+            if (isUndefined(values)) {
+                data = locale_locales__getLocale(key);
+            }
+            else {
+                data = defineLocale(key, values);
+            }
+
+            if (data) {
+                // moment.duration._locale = moment._locale = data;
+                globalLocale = data;
+            }
+        }
+
+        return globalLocale._abbr;
+    }
+
+    function defineLocale (name, config) {
+        if (config !== null) {
+            config.abbr = name;
+            if (locales[name] != null) {
+                deprecateSimple('defineLocaleOverride',
+                        'use moment.updateLocale(localeName, config) to change ' +
+                        'an existing locale. moment.defineLocale(localeName, ' +
+                        'config) should only be used for creating a new locale');
+                config = mergeConfigs(locales[name]._config, config);
+            } else if (config.parentLocale != null) {
+                if (locales[config.parentLocale] != null) {
+                    config = mergeConfigs(locales[config.parentLocale]._config, config);
+                } else {
+                    // treat as if there is no base config
+                    deprecateSimple('parentLocaleUndefined',
+                            'specified parentLocale is not defined yet');
+                }
+            }
+            locales[name] = new Locale(config);
+
+            // backwards compat for now: also set the locale
+            locale_locales__getSetGlobalLocale(name);
+
+            return locales[name];
+        } else {
+            // useful for testing
+            delete locales[name];
+            return null;
+        }
+    }
+
+    function updateLocale(name, config) {
+        if (config != null) {
+            var locale;
+            if (locales[name] != null) {
+                config = mergeConfigs(locales[name]._config, config);
+            }
+            locale = new Locale(config);
+            locale.parentLocale = locales[name];
+            locales[name] = locale;
+
+            // backwards compat for now: also set the locale
+            locale_locales__getSetGlobalLocale(name);
+        } else {
+            // pass null for config to unupdate, useful for tests
+            if (locales[name] != null) {
+                if (locales[name].parentLocale != null) {
+                    locales[name] = locales[name].parentLocale;
+                } else if (locales[name] != null) {
+                    delete locales[name];
+                }
+            }
+        }
+        return locales[name];
+    }
+
+    // returns locale data
+    function locale_locales__getLocale (key) {
+        var locale;
+
+        if (key && key._locale && key._locale._abbr) {
+            key = key._locale._abbr;
+        }
+
+        if (!key) {
+            return globalLocale;
+        }
+
+        if (!isArray(key)) {
+            //short-circuit everything else
+            locale = loadLocale(key);
+            if (locale) {
+                return locale;
+            }
+            key = [key];
+        }
+
+        return chooseLocale(key);
+    }
+
+    function locale_locales__listLocales() {
+        return keys(locales);
+    }
+
+    var aliases = {};
+
+    function addUnitAlias (unit, shorthand) {
+        var lowerCase = unit.toLowerCase();
+        aliases[lowerCase] = aliases[lowerCase + 's'] = aliases[shorthand] = unit;
+    }
+
+    function normalizeUnits(units) {
+        return typeof units === 'string' ? aliases[units] || aliases[units.toLowerCase()] : undefined;
+    }
+
+    function normalizeObjectUnits(inputObject) {
+        var normalizedInput = {},
+            normalizedProp,
+            prop;
+
+        for (prop in inputObject) {
+            if (hasOwnProp(inputObject, prop)) {
+                normalizedProp = normalizeUnits(prop);
+                if (normalizedProp) {
+                    normalizedInput[normalizedProp] = inputObject[prop];
+                }
+            }
+        }
+
+        return normalizedInput;
+    }
+
+    function makeGetSet (unit, keepTime) {
+        return function (value) {
+            if (value != null) {
+                get_set__set(this, unit, value);
+                utils_hooks__hooks.updateOffset(this, keepTime);
+                return this;
+            } else {
+                return get_set__get(this, unit);
+            }
+        };
+    }
+
+    function get_set__get (mom, unit) {
+        return mom.isValid() ?
+            mom._d['get' + (mom._isUTC ? 'UTC' : '') + unit]() : NaN;
+    }
+
+    function get_set__set (mom, unit, value) {
+        if (mom.isValid()) {
+            mom._d['set' + (mom._isUTC ? 'UTC' : '') + unit](value);
+        }
+    }
+
+    // MOMENTS
+
+    function getSet (units, value) {
+        var unit;
+        if (typeof units === 'object') {
+            for (unit in units) {
+                this.set(unit, units[unit]);
+            }
+        } else {
+            units = normalizeUnits(units);
+            if (isFunction(this[units])) {
+                return this[units](value);
+            }
+        }
+        return this;
+    }
+
+    function zeroFill(number, targetLength, forceSign) {
+        var absNumber = '' + Math.abs(number),
+            zerosToFill = targetLength - absNumber.length,
+            sign = number >= 0;
+        return (sign ? (forceSign ? '+' : '') : '-') +
+            Math.pow(10, Math.max(0, zerosToFill)).toString().substr(1) + absNumber;
+    }
+
+    var formattingTokens = /(\[[^\[]*\])|(\\)?([Hh]mm(ss)?|Mo|MM?M?M?|Do|DDDo|DD?D?D?|ddd?d?|do?|w[o|w]?|W[o|W]?|Qo?|YYYYYY|YYYYY|YYYY|YY|gg(ggg?)?|GG(GGG?)?|e|E|a|A|hh?|HH?|kk?|mm?|ss?|S{1,9}|x|X|zz?|ZZ?|.)/g;
+
+    var localFormattingTokens = /(\[[^\[]*\])|(\\)?(LTS|LT|LL?L?L?|l{1,4})/g;
+
+    var formatFunctions = {};
+
+    var formatTokenFunctions = {};
+
+    // token:    'M'
+    // padded:   ['MM', 2]
+    // ordinal:  'Mo'
+    // callback: function () { this.month() + 1 }
+    function addFormatToken (token, padded, ordinal, callback) {
+        var func = callback;
+        if (typeof callback === 'string') {
+            func = function () {
+                return this[callback]();
+            };
+        }
+        if (token) {
+            formatTokenFunctions[token] = func;
+        }
+        if (padded) {
+            formatTokenFunctions[padded[0]] = function () {
+                return zeroFill(func.apply(this, arguments), padded[1], padded[2]);
+            };
+        }
+        if (ordinal) {
+            formatTokenFunctions[ordinal] = function () {
+                return this.localeData().ordinal(func.apply(this, arguments), token);
+            };
+        }
+    }
+
+    function removeFormattingTokens(input) {
+        if (input.match(/\[[\s\S]/)) {
+            return input.replace(/^\[|\]$/g, '');
+        }
+        return input.replace(/\\/g, '');
+    }
+
+    function makeFormatFunction(format) {
+        var array = format.match(formattingTokens), i, length;
+
+        for (i = 0, length = array.length; i < length; i++) {
+            if (formatTokenFunctions[array[i]]) {
+                array[i] = formatTokenFunctions[array[i]];
+            } else {
+                array[i] = removeFormattingTokens(array[i]);
+            }
+        }
+
+        return function (mom) {
+            var output = '', i;
+            for (i = 0; i < length; i++) {
+                output += array[i] instanceof Function ? array[i].call(mom, format) : array[i];
+            }
+            return output;
+        };
+    }
+
+    // format date using native date object
+    function formatMoment(m, format) {
+        if (!m.isValid()) {
+            return m.localeData().invalidDate();
+        }
+
+        format = expandFormat(format, m.localeData());
+        formatFunctions[format] = formatFunctions[format] || makeFormatFunction(format);
+
+        return formatFunctions[format](m);
+    }
+
+    function expandFormat(format, locale) {
+        var i = 5;
+
+        function replaceLongDateFormatTokens(input) {
+            return locale.longDateFormat(input) || input;
+        }
+
+        localFormattingTokens.lastIndex = 0;
+        while (i >= 0 && localFormattingTokens.test(format)) {
+            format = format.replace(localFormattingTokens, replaceLongDateFormatTokens);
+            localFormattingTokens.lastIndex = 0;
+            i -= 1;
+        }
+
+        return format;
+    }
+
+    var match1         = /\d/;            //       0 - 9
+    var match2         = /\d\d/;          //      00 - 99
+    var match3         = /\d{3}/;         //     000 - 999
+    var match4         = /\d{4}/;         //    0000 - 9999
+    var match6         = /[+-]?\d{6}/;    // -999999 - 999999
+    var match1to2      = /\d\d?/;         //       0 - 99
+    var match3to4      = /\d\d\d\d?/;     //     999 - 9999
+    var match5to6      = /\d\d\d\d\d\d?/; //   99999 - 999999
+    var match1to3      = /\d{1,3}/;       //       0 - 999
+    var match1to4      = /\d{1,4}/;       //       0 - 9999
+    var match1to6      = /[+-]?\d{1,6}/;  // -999999 - 999999
+
+    var matchUnsigned  = /\d+/;           //       0 - inf
+    var matchSigned    = /[+-]?\d+/;      //    -inf - inf
+
+    var matchOffset    = /Z|[+-]\d\d:?\d\d/gi; // +00:00 -00:00 +0000 -0000 or Z
+    var matchShortOffset = /Z|[+-]\d\d(?::?\d\d)?/gi; // +00 -00 +00:00 -00:00 +0000 -0000 or Z
+
+    var matchTimestamp = /[+-]?\d+(\.\d{1,3})?/; // 123456789 123456789.123
+
+    // any word (or two) characters or numbers including two/three word month in arabic.
+    // includes scottish gaelic two word and hyphenated months
+    var matchWord = /[0-9]*['a-z\u00A0-\u05FF\u0700-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF]+|[\u0600-\u06FF\/]+(\s*?[\u0600-\u06FF]+){1,2}/i;
+
+
+    var regexes = {};
+
+    function addRegexToken (token, regex, strictRegex) {
+        regexes[token] = isFunction(regex) ? regex : function (isStrict, localeData) {
+            return (isStrict && strictRegex) ? strictRegex : regex;
+        };
+    }
+
+    function getParseRegexForToken (token, config) {
+        if (!hasOwnProp(regexes, token)) {
+            return new RegExp(unescapeFormat(token));
+        }
+
+        return regexes[token](config._strict, config._locale);
+    }
+
+    // Code from http://stackoverflow.com/questions/3561493/is-there-a-regexp-escape-function-in-javascript
+    function unescapeFormat(s) {
+        return regexEscape(s.replace('\\', '').replace(/\\(\[)|\\(\])|\[([^\]\[]*)\]|\\(.)/g, function (matched, p1, p2, p3, p4) {
+            return p1 || p2 || p3 || p4;
+        }));
+    }
+
+    function regexEscape(s) {
+        return s.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+    }
+
+    var tokens = {};
+
+    function addParseToken (token, callback) {
+        var i, func = callback;
+        if (typeof token === 'string') {
+            token = [token];
+        }
+        if (typeof callback === 'number') {
+            func = function (input, array) {
+                array[callback] = toInt(input);
+            };
+        }
+        for (i = 0; i < token.length; i++) {
+            tokens[token[i]] = func;
+        }
+    }
+
+    function addWeekParseToken (token, callback) {
+        addParseToken(token, function (input, array, config, token) {
+            config._w = config._w || {};
+            callback(input, config._w, config, token);
+        });
+    }
+
+    function addTimeToArrayFromToken(token, input, config) {
+        if (input != null && hasOwnProp(tokens, token)) {
+            tokens[token](input, config._a, config, token);
+        }
+    }
+
+    var YEAR = 0;
+    var MONTH = 1;
+    var DATE = 2;
+    var HOUR = 3;
+    var MINUTE = 4;
+    var SECOND = 5;
+    var MILLISECOND = 6;
+    var WEEK = 7;
+    var WEEKDAY = 8;
+
+    var indexOf;
+
+    if (Array.prototype.indexOf) {
+        indexOf = Array.prototype.indexOf;
+    } else {
+        indexOf = function (o) {
+            // I know
+            var i;
+            for (i = 0; i < this.length; ++i) {
+                if (this[i] === o) {
+                    return i;
+                }
+            }
+            return -1;
+        };
+    }
+
+    function daysInMonth(year, month) {
+        return new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+    }
+
+    // FORMATTING
+
+    addFormatToken('M', ['MM', 2], 'Mo', function () {
+        return this.month() + 1;
+    });
+
+    addFormatToken('MMM', 0, 0, function (format) {
+        return this.localeData().monthsShort(this, format);
+    });
+
+    addFormatToken('MMMM', 0, 0, function (format) {
+        return this.localeData().months(this, format);
+    });
+
+    // ALIASES
+
+    addUnitAlias('month', 'M');
+
+    // PARSING
+
+    addRegexToken('M',    match1to2);
+    addRegexToken('MM',   match1to2, match2);
+    addRegexToken('MMM',  function (isStrict, locale) {
+        return locale.monthsShortRegex(isStrict);
+    });
+    addRegexToken('MMMM', function (isStrict, locale) {
+        return locale.monthsRegex(isStrict);
+    });
+
+    addParseToken(['M', 'MM'], function (input, array) {
+        array[MONTH] = toInt(input) - 1;
+    });
+
+    addParseToken(['MMM', 'MMMM'], function (input, array, config, token) {
+        var month = config._locale.monthsParse(input, token, config._strict);
+        // if we didn't find a month name, mark the date as invalid.
+        if (month != null) {
+            array[MONTH] = month;
+        } else {
+            getParsingFlags(config).invalidMonth = input;
+        }
+    });
+
+    // LOCALES
+
+    var MONTHS_IN_FORMAT = /D[oD]?(\[[^\[\]]*\]|\s+)+MMMM?/;
+    var defaultLocaleMonths = 'January_February_March_April_May_June_July_August_September_October_November_December'.split('_');
+    function localeMonths (m, format) {
+        return isArray(this._months) ? this._months[m.month()] :
+            this._months[MONTHS_IN_FORMAT.test(format) ? 'format' : 'standalone'][m.month()];
+    }
+
+    var defaultLocaleMonthsShort = 'Jan_Feb_Mar_Apr_May_Jun_Jul_Aug_Sep_Oct_Nov_Dec'.split('_');
+    function localeMonthsShort (m, format) {
+        return isArray(this._monthsShort) ? this._monthsShort[m.month()] :
+            this._monthsShort[MONTHS_IN_FORMAT.test(format) ? 'format' : 'standalone'][m.month()];
+    }
+
+    function units_month__handleStrictParse(monthName, format, strict) {
+        var i, ii, mom, llc = monthName.toLocaleLowerCase();
+        if (!this._monthsParse) {
+            // this is not used
+            this._monthsParse = [];
+            this._longMonthsParse = [];
+            this._shortMonthsParse = [];
+            for (i = 0; i < 12; ++i) {
+                mom = create_utc__createUTC([2000, i]);
+                this._shortMonthsParse[i] = this.monthsShort(mom, '').toLocaleLowerCase();
+                this._longMonthsParse[i] = this.months(mom, '').toLocaleLowerCase();
+            }
+        }
+
+        if (strict) {
+            if (format === 'MMM') {
+                ii = indexOf.call(this._shortMonthsParse, llc);
+                return ii !== -1 ? ii : null;
+            } else {
+                ii = indexOf.call(this._longMonthsParse, llc);
+                return ii !== -1 ? ii : null;
+            }
+        } else {
+            if (format === 'MMM') {
+                ii = indexOf.call(this._shortMonthsParse, llc);
+                if (ii !== -1) {
+                    return ii;
+                }
+                ii = indexOf.call(this._longMonthsParse, llc);
+                return ii !== -1 ? ii : null;
+            } else {
+                ii = indexOf.call(this._longMonthsParse, llc);
+                if (ii !== -1) {
+                    return ii;
+                }
+                ii = indexOf.call(this._shortMonthsParse, llc);
+                return ii !== -1 ? ii : null;
+            }
+        }
+    }
+
+    function localeMonthsParse (monthName, format, strict) {
+        var i, mom, regex;
+
+        if (this._monthsParseExact) {
+            return units_month__handleStrictParse.call(this, monthName, format, strict);
+        }
+
+        if (!this._monthsParse) {
+            this._monthsParse = [];
+            this._longMonthsParse = [];
+            this._shortMonthsParse = [];
+        }
+
+        // TODO: add sorting
+        // Sorting makes sure if one month (or abbr) is a prefix of another
+        // see sorting in computeMonthsParse
+        for (i = 0; i < 12; i++) {
+            // make the regex if we don't have it already
+            mom = create_utc__createUTC([2000, i]);
+            if (strict && !this._longMonthsParse[i]) {
+                this._longMonthsParse[i] = new RegExp('^' + this.months(mom, '').replace('.', '') + '$', 'i');
+                this._shortMonthsParse[i] = new RegExp('^' + this.monthsShort(mom, '').replace('.', '') + '$', 'i');
+            }
+            if (!strict && !this._monthsParse[i]) {
+                regex = '^' + this.months(mom, '') + '|^' + this.monthsShort(mom, '');
+                this._monthsParse[i] = new RegExp(regex.replace('.', ''), 'i');
+            }
+            // test the regex
+            if (strict && format === 'MMMM' && this._longMonthsParse[i].test(monthName)) {
+                return i;
+            } else if (strict && format === 'MMM' && this._shortMonthsParse[i].test(monthName)) {
+                return i;
+            } else if (!strict && this._monthsParse[i].test(monthName)) {
+                return i;
+            }
+        }
+    }
+
+    // MOMENTS
+
+    function setMonth (mom, value) {
+        var dayOfMonth;
+
+        if (!mom.isValid()) {
+            // No op
+            return mom;
+        }
+
+        if (typeof value === 'string') {
+            if (/^\d+$/.test(value)) {
+                value = toInt(value);
+            } else {
+                value = mom.localeData().monthsParse(value);
+                // TODO: Another silent failure?
+                if (typeof value !== 'number') {
+                    return mom;
+                }
+            }
+        }
+
+        dayOfMonth = Math.min(mom.date(), daysInMonth(mom.year(), value));
+        mom._d['set' + (mom._isUTC ? 'UTC' : '') + 'Month'](value, dayOfMonth);
+        return mom;
+    }
+
+    function getSetMonth (value) {
+        if (value != null) {
+            setMonth(this, value);
+            utils_hooks__hooks.updateOffset(this, true);
+            return this;
+        } else {
+            return get_set__get(this, 'Month');
+        }
+    }
+
+    function getDaysInMonth () {
+        return daysInMonth(this.year(), this.month());
+    }
+
+    var defaultMonthsShortRegex = matchWord;
+    function monthsShortRegex (isStrict) {
+        if (this._monthsParseExact) {
+            if (!hasOwnProp(this, '_monthsRegex')) {
+                computeMonthsParse.call(this);
+            }
+            if (isStrict) {
+                return this._monthsShortStrictRegex;
+            } else {
+                return this._monthsShortRegex;
+            }
+        } else {
+            return this._monthsShortStrictRegex && isStrict ?
+                this._monthsShortStrictRegex : this._monthsShortRegex;
+        }
+    }
+
+    var defaultMonthsRegex = matchWord;
+    function monthsRegex (isStrict) {
+        if (this._monthsParseExact) {
+            if (!hasOwnProp(this, '_monthsRegex')) {
+                computeMonthsParse.call(this);
+            }
+            if (isStrict) {
+                return this._monthsStrictRegex;
+            } else {
+                return this._monthsRegex;
+            }
+        } else {
+            return this._monthsStrictRegex && isStrict ?
+                this._monthsStrictRegex : this._monthsRegex;
+        }
+    }
+
+    function computeMonthsParse () {
+        function cmpLenRev(a, b) {
+            return b.length - a.length;
+        }
+
+        var shortPieces = [], longPieces = [], mixedPieces = [],
+            i, mom;
+        for (i = 0; i < 12; i++) {
+            // make the regex if we don't have it already
+            mom = create_utc__createUTC([2000, i]);
+            shortPieces.push(this.monthsShort(mom, ''));
+            longPieces.push(this.months(mom, ''));
+            mixedPieces.push(this.months(mom, ''));
+            mixedPieces.push(this.monthsShort(mom, ''));
+        }
+        // Sorting makes sure if one month (or abbr) is a prefix of another it
+        // will match the longer piece.
+        shortPieces.sort(cmpLenRev);
+        longPieces.sort(cmpLenRev);
+        mixedPieces.sort(cmpLenRev);
+        for (i = 0; i < 12; i++) {
+            shortPieces[i] = regexEscape(shortPieces[i]);
+            longPieces[i] = regexEscape(longPieces[i]);
+            mixedPieces[i] = regexEscape(mixedPieces[i]);
+        }
+
+        this._monthsRegex = new RegExp('^(' + mixedPieces.join('|') + ')', 'i');
+        this._monthsShortRegex = this._monthsRegex;
+        this._monthsStrictRegex = new RegExp('^(' + longPieces.join('|') + ')', 'i');
+        this._monthsShortStrictRegex = new RegExp('^(' + shortPieces.join('|') + ')', 'i');
+    }
+
+    function checkOverflow (m) {
+        var overflow;
+        var a = m._a;
+
+        if (a && getParsingFlags(m).overflow === -2) {
+            overflow =
+                a[MONTH]       < 0 || a[MONTH]       > 11  ? MONTH :
+                a[DATE]        < 1 || a[DATE]        > daysInMonth(a[YEAR], a[MONTH]) ? DATE :
+                a[HOUR]        < 0 || a[HOUR]        > 24 || (a[HOUR] === 24 && (a[MINUTE] !== 0 || a[SECOND] !== 0 || a[MILLISECOND] !== 0)) ? HOUR :
+                a[MINUTE]      < 0 || a[MINUTE]      > 59  ? MINUTE :
+                a[SECOND]      < 0 || a[SECOND]      > 59  ? SECOND :
+                a[MILLISECOND] < 0 || a[MILLISECOND] > 999 ? MILLISECOND :
+                -1;
+
+            if (getParsingFlags(m)._overflowDayOfYear && (overflow < YEAR || overflow > DATE)) {
+                overflow = DATE;
+            }
+            if (getParsingFlags(m)._overflowWeeks && overflow === -1) {
+                overflow = WEEK;
+            }
+            if (getParsingFlags(m)._overflowWeekday && overflow === -1) {
+                overflow = WEEKDAY;
+            }
+
+            getParsingFlags(m).overflow = overflow;
+        }
+
+        return m;
+    }
+
+    // iso 8601 regex
+    // 0000-00-00 0000-W00 or 0000-W00-0 + T + 00 or 00:00 or 00:00:00 or 00:00:00.000 + +00:00 or +0000 or +00)
+    var extendedIsoRegex = /^\s*((?:[+-]\d{6}|\d{4})-(?:\d\d-\d\d|W\d\d-\d|W\d\d|\d\d\d|\d\d))(?:(T| )(\d\d(?::\d\d(?::\d\d(?:[.,]\d+)?)?)?)([\+\-]\d\d(?::?\d\d)?|\s*Z)?)?/;
+    var basicIsoRegex = /^\s*((?:[+-]\d{6}|\d{4})(?:\d\d\d\d|W\d\d\d|W\d\d|\d\d\d|\d\d))(?:(T| )(\d\d(?:\d\d(?:\d\d(?:[.,]\d+)?)?)?)([\+\-]\d\d(?::?\d\d)?|\s*Z)?)?/;
+
+    var tzRegex = /Z|[+-]\d\d(?::?\d\d)?/;
+
+    var isoDates = [
+        ['YYYYYY-MM-DD', /[+-]\d{6}-\d\d-\d\d/],
+        ['YYYY-MM-DD', /\d{4}-\d\d-\d\d/],
+        ['GGGG-[W]WW-E', /\d{4}-W\d\d-\d/],
+        ['GGGG-[W]WW', /\d{4}-W\d\d/, false],
+        ['YYYY-DDD', /\d{4}-\d{3}/],
+        ['YYYY-MM', /\d{4}-\d\d/, false],
+        ['YYYYYYMMDD', /[+-]\d{10}/],
+        ['YYYYMMDD', /\d{8}/],
+        // YYYYMM is NOT allowed by the standard
+        ['GGGG[W]WWE', /\d{4}W\d{3}/],
+        ['GGGG[W]WW', /\d{4}W\d{2}/, false],
+        ['YYYYDDD', /\d{7}/]
+    ];
+
+    // iso time formats and regexes
+    var isoTimes = [
+        ['HH:mm:ss.SSSS', /\d\d:\d\d:\d\d\.\d+/],
+        ['HH:mm:ss,SSSS', /\d\d:\d\d:\d\d,\d+/],
+        ['HH:mm:ss', /\d\d:\d\d:\d\d/],
+        ['HH:mm', /\d\d:\d\d/],
+        ['HHmmss.SSSS', /\d\d\d\d\d\d\.\d+/],
+        ['HHmmss,SSSS', /\d\d\d\d\d\d,\d+/],
+        ['HHmmss', /\d\d\d\d\d\d/],
+        ['HHmm', /\d\d\d\d/],
+        ['HH', /\d\d/]
+    ];
+
+    var aspNetJsonRegex = /^\/?Date\((\-?\d+)/i;
+
+    // date from iso format
+    function configFromISO(config) {
+        var i, l,
+            string = config._i,
+            match = extendedIsoRegex.exec(string) || basicIsoRegex.exec(string),
+            allowTime, dateFormat, timeFormat, tzFormat;
+
+        if (match) {
+            getParsingFlags(config).iso = true;
+
+            for (i = 0, l = isoDates.length; i < l; i++) {
+                if (isoDates[i][1].exec(match[1])) {
+                    dateFormat = isoDates[i][0];
+                    allowTime = isoDates[i][2] !== false;
+                    break;
+                }
+            }
+            if (dateFormat == null) {
+                config._isValid = false;
+                return;
+            }
+            if (match[3]) {
+                for (i = 0, l = isoTimes.length; i < l; i++) {
+                    if (isoTimes[i][1].exec(match[3])) {
+                        // match[2] should be 'T' or space
+                        timeFormat = (match[2] || ' ') + isoTimes[i][0];
+                        break;
+                    }
+                }
+                if (timeFormat == null) {
+                    config._isValid = false;
+                    return;
+                }
+            }
+            if (!allowTime && timeFormat != null) {
+                config._isValid = false;
+                return;
+            }
+            if (match[4]) {
+                if (tzRegex.exec(match[4])) {
+                    tzFormat = 'Z';
+                } else {
+                    config._isValid = false;
+                    return;
+                }
+            }
+            config._f = dateFormat + (timeFormat || '') + (tzFormat || '');
+            configFromStringAndFormat(config);
+        } else {
+            config._isValid = false;
+        }
+    }
+
+    // date from iso format or fallback
+    function configFromString(config) {
+        var matched = aspNetJsonRegex.exec(config._i);
+
+        if (matched !== null) {
+            config._d = new Date(+matched[1]);
+            return;
+        }
+
+        configFromISO(config);
+        if (config._isValid === false) {
+            delete config._isValid;
+            utils_hooks__hooks.createFromInputFallback(config);
+        }
+    }
+
+    utils_hooks__hooks.createFromInputFallback = deprecate(
+        'moment construction falls back to js Date. This is ' +
+        'discouraged and will be removed in upcoming major ' +
+        'release. Please refer to ' +
+        'https://github.com/moment/moment/issues/1407 for more info.',
+        function (config) {
+            config._d = new Date(config._i + (config._useUTC ? ' UTC' : ''));
+        }
+    );
+
+    function createDate (y, m, d, h, M, s, ms) {
+        //can't just apply() to create a date:
+        //http://stackoverflow.com/questions/181348/instantiating-a-javascript-object-by-calling-prototype-constructor-apply
+        var date = new Date(y, m, d, h, M, s, ms);
+
+        //the date constructor remaps years 0-99 to 1900-1999
+        if (y < 100 && y >= 0 && isFinite(date.getFullYear())) {
+            date.setFullYear(y);
+        }
+        return date;
+    }
+
+    function createUTCDate (y) {
+        var date = new Date(Date.UTC.apply(null, arguments));
+
+        //the Date.UTC function remaps years 0-99 to 1900-1999
+        if (y < 100 && y >= 0 && isFinite(date.getUTCFullYear())) {
+            date.setUTCFullYear(y);
+        }
+        return date;
+    }
+
+    // FORMATTING
+
+    addFormatToken('Y', 0, 0, function () {
+        var y = this.year();
+        return y <= 9999 ? '' + y : '+' + y;
+    });
+
+    addFormatToken(0, ['YY', 2], 0, function () {
+        return this.year() % 100;
+    });
+
+    addFormatToken(0, ['YYYY',   4],       0, 'year');
+    addFormatToken(0, ['YYYYY',  5],       0, 'year');
+    addFormatToken(0, ['YYYYYY', 6, true], 0, 'year');
+
+    // ALIASES
+
+    addUnitAlias('year', 'y');
+
+    // PARSING
+
+    addRegexToken('Y',      matchSigned);
+    addRegexToken('YY',     match1to2, match2);
+    addRegexToken('YYYY',   match1to4, match4);
+    addRegexToken('YYYYY',  match1to6, match6);
+    addRegexToken('YYYYYY', match1to6, match6);
+
+    addParseToken(['YYYYY', 'YYYYYY'], YEAR);
+    addParseToken('YYYY', function (input, array) {
+        array[YEAR] = input.length === 2 ? utils_hooks__hooks.parseTwoDigitYear(input) : toInt(input);
+    });
+    addParseToken('YY', function (input, array) {
+        array[YEAR] = utils_hooks__hooks.parseTwoDigitYear(input);
+    });
+    addParseToken('Y', function (input, array) {
+        array[YEAR] = parseInt(input, 10);
+    });
+
+    // HELPERS
+
+    function daysInYear(year) {
+        return isLeapYear(year) ? 366 : 365;
+    }
+
+    function isLeapYear(year) {
+        return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+    }
+
+    // HOOKS
+
+    utils_hooks__hooks.parseTwoDigitYear = function (input) {
+        return toInt(input) + (toInt(input) > 68 ? 1900 : 2000);
+    };
+
+    // MOMENTS
+
+    var getSetYear = makeGetSet('FullYear', true);
+
+    function getIsLeapYear () {
+        return isLeapYear(this.year());
+    }
+
+    // start-of-first-week - start-of-year
+    function firstWeekOffset(year, dow, doy) {
+        var // first-week day -- which january is always in the first week (4 for iso, 1 for other)
+            fwd = 7 + dow - doy,
+            // first-week day local weekday -- which local weekday is fwd
+            fwdlw = (7 + createUTCDate(year, 0, fwd).getUTCDay() - dow) % 7;
+
+        return -fwdlw + fwd - 1;
+    }
+
+    //http://en.wikipedia.org/wiki/ISO_week_date#Calculating_a_date_given_the_year.2C_week_number_and_weekday
+    function dayOfYearFromWeeks(year, week, weekday, dow, doy) {
+        var localWeekday = (7 + weekday - dow) % 7,
+            weekOffset = firstWeekOffset(year, dow, doy),
+            dayOfYear = 1 + 7 * (week - 1) + localWeekday + weekOffset,
+            resYear, resDayOfYear;
+
+        if (dayOfYear <= 0) {
+            resYear = year - 1;
+            resDayOfYear = daysInYear(resYear) + dayOfYear;
+        } else if (dayOfYear > daysInYear(year)) {
+            resYear = year + 1;
+            resDayOfYear = dayOfYear - daysInYear(year);
+        } else {
+            resYear = year;
+            resDayOfYear = dayOfYear;
+        }
+
+        return {
+            year: resYear,
+            dayOfYear: resDayOfYear
+        };
+    }
+
+    function weekOfYear(mom, dow, doy) {
+        var weekOffset = firstWeekOffset(mom.year(), dow, doy),
+            week = Math.floor((mom.dayOfYear() - weekOffset - 1) / 7) + 1,
+            resWeek, resYear;
+
+        if (week < 1) {
+            resYear = mom.year() - 1;
+            resWeek = week + weeksInYear(resYear, dow, doy);
+        } else if (week > weeksInYear(mom.year(), dow, doy)) {
+            resWeek = week - weeksInYear(mom.year(), dow, doy);
+            resYear = mom.year() + 1;
+        } else {
+            resYear = mom.year();
+            resWeek = week;
+        }
+
+        return {
+            week: resWeek,
+            year: resYear
+        };
+    }
+
+    function weeksInYear(year, dow, doy) {
+        var weekOffset = firstWeekOffset(year, dow, doy),
+            weekOffsetNext = firstWeekOffset(year + 1, dow, doy);
+        return (daysInYear(year) - weekOffset + weekOffsetNext) / 7;
+    }
+
+    // Pick the first defined of two or three arguments.
+    function defaults(a, b, c) {
+        if (a != null) {
+            return a;
+        }
+        if (b != null) {
+            return b;
+        }
+        return c;
+    }
+
+    function currentDateArray(config) {
+        // hooks is actually the exported moment object
+        var nowValue = new Date(utils_hooks__hooks.now());
+        if (config._useUTC) {
+            return [nowValue.getUTCFullYear(), nowValue.getUTCMonth(), nowValue.getUTCDate()];
+        }
+        return [nowValue.getFullYear(), nowValue.getMonth(), nowValue.getDate()];
+    }
+
+    // convert an array to a date.
+    // the array should mirror the parameters below
+    // note: all values past the year are optional and will default to the lowest possible value.
+    // [year, month, day , hour, minute, second, millisecond]
+    function configFromArray (config) {
+        var i, date, input = [], currentDate, yearToUse;
+
+        if (config._d) {
+            return;
+        }
+
+        currentDate = currentDateArray(config);
+
+        //compute day of the year from weeks and weekdays
+        if (config._w && config._a[DATE] == null && config._a[MONTH] == null) {
+            dayOfYearFromWeekInfo(config);
+        }
+
+        //if the day of the year is set, figure out what it is
+        if (config._dayOfYear) {
+            yearToUse = defaults(config._a[YEAR], currentDate[YEAR]);
+
+            if (config._dayOfYear > daysInYear(yearToUse)) {
+                getParsingFlags(config)._overflowDayOfYear = true;
+            }
+
+            date = createUTCDate(yearToUse, 0, config._dayOfYear);
+            config._a[MONTH] = date.getUTCMonth();
+            config._a[DATE] = date.getUTCDate();
+        }
+
+        // Default to current date.
+        // * if no year, month, day of month are given, default to today
+        // * if day of month is given, default month and year
+        // * if month is given, default only year
+        // * if year is given, don't default anything
+        for (i = 0; i < 3 && config._a[i] == null; ++i) {
+            config._a[i] = input[i] = currentDate[i];
+        }
+
+        // Zero out whatever was not defaulted, including time
+        for (; i < 7; i++) {
+            config._a[i] = input[i] = (config._a[i] == null) ? (i === 2 ? 1 : 0) : config._a[i];
+        }
+
+        // Check for 24:00:00.000
+        if (config._a[HOUR] === 24 &&
+                config._a[MINUTE] === 0 &&
+                config._a[SECOND] === 0 &&
+                config._a[MILLISECOND] === 0) {
+            config._nextDay = true;
+            config._a[HOUR] = 0;
+        }
+
+        config._d = (config._useUTC ? createUTCDate : createDate).apply(null, input);
+        // Apply timezone offset from input. The actual utcOffset can be changed
+        // with parseZone.
+        if (config._tzm != null) {
+            config._d.setUTCMinutes(config._d.getUTCMinutes() - config._tzm);
+        }
+
+        if (config._nextDay) {
+            config._a[HOUR] = 24;
+        }
+    }
+
+    function dayOfYearFromWeekInfo(config) {
+        var w, weekYear, week, weekday, dow, doy, temp, weekdayOverflow;
+
+        w = config._w;
+        if (w.GG != null || w.W != null || w.E != null) {
+            dow = 1;
+            doy = 4;
+
+            // TODO: We need to take the current isoWeekYear, but that depends on
+            // how we interpret now (local, utc, fixed offset). So create
+            // a now version of current config (take local/utc/offset flags, and
+            // create now).
+            weekYear = defaults(w.GG, config._a[YEAR], weekOfYear(local__createLocal(), 1, 4).year);
+            week = defaults(w.W, 1);
+            weekday = defaults(w.E, 1);
+            if (weekday < 1 || weekday > 7) {
+                weekdayOverflow = true;
+            }
+        } else {
+            dow = config._locale._week.dow;
+            doy = config._locale._week.doy;
+
+            weekYear = defaults(w.gg, config._a[YEAR], weekOfYear(local__createLocal(), dow, doy).year);
+            week = defaults(w.w, 1);
+
+            if (w.d != null) {
+                // weekday -- low day numbers are considered next week
+                weekday = w.d;
+                if (weekday < 0 || weekday > 6) {
+                    weekdayOverflow = true;
+                }
+            } else if (w.e != null) {
+                // local weekday -- counting starts from begining of week
+                weekday = w.e + dow;
+                if (w.e < 0 || w.e > 6) {
+                    weekdayOverflow = true;
+                }
+            } else {
+                // default to begining of week
+                weekday = dow;
+            }
+        }
+        if (week < 1 || week > weeksInYear(weekYear, dow, doy)) {
+            getParsingFlags(config)._overflowWeeks = true;
+        } else if (weekdayOverflow != null) {
+            getParsingFlags(config)._overflowWeekday = true;
+        } else {
+            temp = dayOfYearFromWeeks(weekYear, week, weekday, dow, doy);
+            config._a[YEAR] = temp.year;
+            config._dayOfYear = temp.dayOfYear;
+        }
+    }
+
+    // constant that refers to the ISO standard
+    utils_hooks__hooks.ISO_8601 = function () {};
+
+    // date from string and format string
+    function configFromStringAndFormat(config) {
+        // TODO: Move this to another part of the creation flow to prevent circular deps
+        if (config._f === utils_hooks__hooks.ISO_8601) {
+            configFromISO(config);
+            return;
+        }
+
+        config._a = [];
+        getParsingFlags(config).empty = true;
+
+        // This array is used to make a Date, either with `new Date` or `Date.UTC`
+        var string = '' + config._i,
+            i, parsedInput, tokens, token, skipped,
+            stringLength = string.length,
+            totalParsedInputLength = 0;
+
+        tokens = expandFormat(config._f, config._locale).match(formattingTokens) || [];
+
+        for (i = 0; i < tokens.length; i++) {
+            token = tokens[i];
+            parsedInput = (string.match(getParseRegexForToken(token, config)) || [])[0];
+            // console.log('token', token, 'parsedInput', parsedInput,
+            //         'regex', getParseRegexForToken(token, config));
+            if (parsedInput) {
+                skipped = string.substr(0, string.indexOf(parsedInput));
+                if (skipped.length > 0) {
+                    getParsingFlags(config).unusedInput.push(skipped);
+                }
+                string = string.slice(string.indexOf(parsedInput) + parsedInput.length);
+                totalParsedInputLength += parsedInput.length;
+            }
+            // don't parse if it's not a known token
+            if (formatTokenFunctions[token]) {
+                if (parsedInput) {
+                    getParsingFlags(config).empty = false;
+                }
+                else {
+                    getParsingFlags(config).unusedTokens.push(token);
+                }
+                addTimeToArrayFromToken(token, parsedInput, config);
+            }
+            else if (config._strict && !parsedInput) {
+                getParsingFlags(config).unusedTokens.push(token);
+            }
+        }
+
+        // add remaining unparsed input length to the string
+        getParsingFlags(config).charsLeftOver = stringLength - totalParsedInputLength;
+        if (string.length > 0) {
+            getParsingFlags(config).unusedInput.push(string);
+        }
+
+        // clear _12h flag if hour is <= 12
+        if (getParsingFlags(config).bigHour === true &&
+                config._a[HOUR] <= 12 &&
+                config._a[HOUR] > 0) {
+            getParsingFlags(config).bigHour = undefined;
+        }
+
+        getParsingFlags(config).parsedDateParts = config._a.slice(0);
+        getParsingFlags(config).meridiem = config._meridiem;
+        // handle meridiem
+        config._a[HOUR] = meridiemFixWrap(config._locale, config._a[HOUR], config._meridiem);
+
+        configFromArray(config);
+        checkOverflow(config);
+    }
+
+
+    function meridiemFixWrap (locale, hour, meridiem) {
+        var isPm;
+
+        if (meridiem == null) {
+            // nothing to do
+            return hour;
+        }
+        if (locale.meridiemHour != null) {
+            return locale.meridiemHour(hour, meridiem);
+        } else if (locale.isPM != null) {
+            // Fallback
+            isPm = locale.isPM(meridiem);
+            if (isPm && hour < 12) {
+                hour += 12;
+            }
+            if (!isPm && hour === 12) {
+                hour = 0;
+            }
+            return hour;
+        } else {
+            // this is not supposed to happen
+            return hour;
+        }
+    }
+
+    // date from string and array of format strings
+    function configFromStringAndArray(config) {
+        var tempConfig,
+            bestMoment,
+
+            scoreToBeat,
+            i,
+            currentScore;
+
+        if (config._f.length === 0) {
+            getParsingFlags(config).invalidFormat = true;
+            config._d = new Date(NaN);
+            return;
+        }
+
+        for (i = 0; i < config._f.length; i++) {
+            currentScore = 0;
+            tempConfig = copyConfig({}, config);
+            if (config._useUTC != null) {
+                tempConfig._useUTC = config._useUTC;
+            }
+            tempConfig._f = config._f[i];
+            configFromStringAndFormat(tempConfig);
+
+            if (!valid__isValid(tempConfig)) {
+                continue;
+            }
+
+            // if there is any input that was not parsed add a penalty for that format
+            currentScore += getParsingFlags(tempConfig).charsLeftOver;
+
+            //or tokens
+            currentScore += getParsingFlags(tempConfig).unusedTokens.length * 10;
+
+            getParsingFlags(tempConfig).score = currentScore;
+
+            if (scoreToBeat == null || currentScore < scoreToBeat) {
+                scoreToBeat = currentScore;
+                bestMoment = tempConfig;
+            }
+        }
+
+        extend(config, bestMoment || tempConfig);
+    }
+
+    function configFromObject(config) {
+        if (config._d) {
+            return;
+        }
+
+        var i = normalizeObjectUnits(config._i);
+        config._a = map([i.year, i.month, i.day || i.date, i.hour, i.minute, i.second, i.millisecond], function (obj) {
+            return obj && parseInt(obj, 10);
+        });
+
+        configFromArray(config);
+    }
+
+    function createFromConfig (config) {
+        var res = new Moment(checkOverflow(prepareConfig(config)));
+        if (res._nextDay) {
+            // Adding is smart enough around DST
+            res.add(1, 'd');
+            res._nextDay = undefined;
+        }
+
+        return res;
+    }
+
+    function prepareConfig (config) {
+        var input = config._i,
+            format = config._f;
+
+        config._locale = config._locale || locale_locales__getLocale(config._l);
+
+        if (input === null || (format === undefined && input === '')) {
+            return valid__createInvalid({nullInput: true});
+        }
+
+        if (typeof input === 'string') {
+            config._i = input = config._locale.preparse(input);
+        }
+
+        if (isMoment(input)) {
+            return new Moment(checkOverflow(input));
+        } else if (isArray(format)) {
+            configFromStringAndArray(config);
+        } else if (format) {
+            configFromStringAndFormat(config);
+        } else if (isDate(input)) {
+            config._d = input;
+        } else {
+            configFromInput(config);
+        }
+
+        if (!valid__isValid(config)) {
+            config._d = null;
+        }
+
+        return config;
+    }
+
+    function configFromInput(config) {
+        var input = config._i;
+        if (input === undefined) {
+            config._d = new Date(utils_hooks__hooks.now());
+        } else if (isDate(input)) {
+            config._d = new Date(input.valueOf());
+        } else if (typeof input === 'string') {
+            configFromString(config);
+        } else if (isArray(input)) {
+            config._a = map(input.slice(0), function (obj) {
+                return parseInt(obj, 10);
+            });
+            configFromArray(config);
+        } else if (typeof(input) === 'object') {
+            configFromObject(config);
+        } else if (typeof(input) === 'number') {
+            // from milliseconds
+            config._d = new Date(input);
+        } else {
+            utils_hooks__hooks.createFromInputFallback(config);
+        }
+    }
+
+    function createLocalOrUTC (input, format, locale, strict, isUTC) {
+        var c = {};
+
+        if (typeof(locale) === 'boolean') {
+            strict = locale;
+            locale = undefined;
+        }
+        // object construction must be done this way.
+        // https://github.com/moment/moment/issues/1423
+        c._isAMomentObject = true;
+        c._useUTC = c._isUTC = isUTC;
+        c._l = locale;
+        c._i = input;
+        c._f = format;
+        c._strict = strict;
+
+        return createFromConfig(c);
+    }
+
+    function local__createLocal (input, format, locale, strict) {
+        return createLocalOrUTC(input, format, locale, strict, false);
+    }
+
+    var prototypeMin = deprecate(
+         'moment().min is deprecated, use moment.max instead. https://github.com/moment/moment/issues/1548',
+         function () {
+             var other = local__createLocal.apply(null, arguments);
+             if (this.isValid() && other.isValid()) {
+                 return other < this ? this : other;
+             } else {
+                 return valid__createInvalid();
+             }
+         }
+     );
+
+    var prototypeMax = deprecate(
+        'moment().max is deprecated, use moment.min instead. https://github.com/moment/moment/issues/1548',
+        function () {
+            var other = local__createLocal.apply(null, arguments);
+            if (this.isValid() && other.isValid()) {
+                return other > this ? this : other;
+            } else {
+                return valid__createInvalid();
+            }
+        }
+    );
+
+    // Pick a moment m from moments so that m[fn](other) is true for all
+    // other. This relies on the function fn to be transitive.
+    //
+    // moments should either be an array of moment objects or an array, whose
+    // first element is an array of moment objects.
+    function pickBy(fn, moments) {
+        var res, i;
+        if (moments.length === 1 && isArray(moments[0])) {
+            moments = moments[0];
+        }
+        if (!moments.length) {
+            return local__createLocal();
+        }
+        res = moments[0];
+        for (i = 1; i < moments.length; ++i) {
+            if (!moments[i].isValid() || moments[i][fn](res)) {
+                res = moments[i];
+            }
+        }
+        return res;
+    }
+
+    // TODO: Use [].sort instead?
+    function min () {
+        var args = [].slice.call(arguments, 0);
+
+        return pickBy('isBefore', args);
+    }
+
+    function max () {
+        var args = [].slice.call(arguments, 0);
+
+        return pickBy('isAfter', args);
+    }
+
+    var now = function () {
+        return Date.now ? Date.now() : +(new Date());
+    };
+
+    function Duration (duration) {
+        var normalizedInput = normalizeObjectUnits(duration),
+            years = normalizedInput.year || 0,
+            quarters = normalizedInput.quarter || 0,
+            months = normalizedInput.month || 0,
+            weeks = normalizedInput.week || 0,
+            days = normalizedInput.day || 0,
+            hours = normalizedInput.hour || 0,
+            minutes = normalizedInput.minute || 0,
+            seconds = normalizedInput.second || 0,
+            milliseconds = normalizedInput.millisecond || 0;
+
+        // representation for dateAddRemove
+        this._milliseconds = +milliseconds +
+            seconds * 1e3 + // 1000
+            minutes * 6e4 + // 1000 * 60
+            hours * 1000 * 60 * 60; //using 1000 * 60 * 60 instead of 36e5 to avoid floating point rounding errors https://github.com/moment/moment/issues/2978
+        // Because of dateAddRemove treats 24 hours as different from a
+        // day when working around DST, we need to store them separately
+        this._days = +days +
+            weeks * 7;
+        // It is impossible translate months into days without knowing
+        // which months you are are talking about, so we have to store
+        // it separately.
+        this._months = +months +
+            quarters * 3 +
+            years * 12;
+
+        this._data = {};
+
+        this._locale = locale_locales__getLocale();
+
+        this._bubble();
+    }
+
+    function isDuration (obj) {
+        return obj instanceof Duration;
+    }
+
+    // FORMATTING
+
+    function offset (token, separator) {
+        addFormatToken(token, 0, 0, function () {
+            var offset = this.utcOffset();
+            var sign = '+';
+            if (offset < 0) {
+                offset = -offset;
+                sign = '-';
+            }
+            return sign + zeroFill(~~(offset / 60), 2) + separator + zeroFill(~~(offset) % 60, 2);
+        });
+    }
+
+    offset('Z', ':');
+    offset('ZZ', '');
+
+    // PARSING
+
+    addRegexToken('Z',  matchShortOffset);
+    addRegexToken('ZZ', matchShortOffset);
+    addParseToken(['Z', 'ZZ'], function (input, array, config) {
+        config._useUTC = true;
+        config._tzm = offsetFromString(matchShortOffset, input);
+    });
+
+    // HELPERS
+
+    // timezone chunker
+    // '+10:00' > ['10',  '00']
+    // '-1530'  > ['-15', '30']
+    var chunkOffset = /([\+\-]|\d\d)/gi;
+
+    function offsetFromString(matcher, string) {
+        var matches = ((string || '').match(matcher) || []);
+        var chunk   = matches[matches.length - 1] || [];
+        var parts   = (chunk + '').match(chunkOffset) || ['-', 0, 0];
+        var minutes = +(parts[1] * 60) + toInt(parts[2]);
+
+        return parts[0] === '+' ? minutes : -minutes;
+    }
+
+    // Return a moment from input, that is local/utc/zone equivalent to model.
+    function cloneWithOffset(input, model) {
+        var res, diff;
+        if (model._isUTC) {
+            res = model.clone();
+            diff = (isMoment(input) || isDate(input) ? input.valueOf() : local__createLocal(input).valueOf()) - res.valueOf();
+            // Use low-level api, because this fn is low-level api.
+            res._d.setTime(res._d.valueOf() + diff);
+            utils_hooks__hooks.updateOffset(res, false);
+            return res;
+        } else {
+            return local__createLocal(input).local();
+        }
+    }
+
+    function getDateOffset (m) {
+        // On Firefox.24 Date#getTimezoneOffset returns a floating point.
+        // https://github.com/moment/moment/pull/1871
+        return -Math.round(m._d.getTimezoneOffset() / 15) * 15;
+    }
+
+    // HOOKS
+
+    // This function will be called whenever a moment is mutated.
+    // It is intended to keep the offset in sync with the timezone.
+    utils_hooks__hooks.updateOffset = function () {};
+
+    // MOMENTS
+
+    // keepLocalTime = true means only change the timezone, without
+    // affecting the local hour. So 5:31:26 +0300 --[utcOffset(2, true)]-->
+    // 5:31:26 +0200 It is possible that 5:31:26 doesn't exist with offset
+    // +0200, so we adjust the time as needed, to be valid.
+    //
+    // Keeping the time actually adds/subtracts (one hour)
+    // from the actual represented time. That is why we call updateOffset
+    // a second time. In case it wants us to change the offset again
+    // _changeInProgress == true case, then we have to adjust, because
+    // there is no such time in the given timezone.
+    function getSetOffset (input, keepLocalTime) {
+        var offset = this._offset || 0,
+            localAdjust;
+        if (!this.isValid()) {
+            return input != null ? this : NaN;
+        }
+        if (input != null) {
+            if (typeof input === 'string') {
+                input = offsetFromString(matchShortOffset, input);
+            } else if (Math.abs(input) < 16) {
+                input = input * 60;
+            }
+            if (!this._isUTC && keepLocalTime) {
+                localAdjust = getDateOffset(this);
+            }
+            this._offset = input;
+            this._isUTC = true;
+            if (localAdjust != null) {
+                this.add(localAdjust, 'm');
+            }
+            if (offset !== input) {
+                if (!keepLocalTime || this._changeInProgress) {
+                    add_subtract__addSubtract(this, create__createDuration(input - offset, 'm'), 1, false);
+                } else if (!this._changeInProgress) {
+                    this._changeInProgress = true;
+                    utils_hooks__hooks.updateOffset(this, true);
+                    this._changeInProgress = null;
+                }
+            }
+            return this;
+        } else {
+            return this._isUTC ? offset : getDateOffset(this);
+        }
+    }
+
+    function getSetZone (input, keepLocalTime) {
+        if (input != null) {
+            if (typeof input !== 'string') {
+                input = -input;
+            }
+
+            this.utcOffset(input, keepLocalTime);
+
+            return this;
+        } else {
+            return -this.utcOffset();
+        }
+    }
+
+    function setOffsetToUTC (keepLocalTime) {
+        return this.utcOffset(0, keepLocalTime);
+    }
+
+    function setOffsetToLocal (keepLocalTime) {
+        if (this._isUTC) {
+            this.utcOffset(0, keepLocalTime);
+            this._isUTC = false;
+
+            if (keepLocalTime) {
+                this.subtract(getDateOffset(this), 'm');
+            }
+        }
+        return this;
+    }
+
+    function setOffsetToParsedOffset () {
+        if (this._tzm) {
+            this.utcOffset(this._tzm);
+        } else if (typeof this._i === 'string') {
+            this.utcOffset(offsetFromString(matchOffset, this._i));
+        }
+        return this;
+    }
+
+    function hasAlignedHourOffset (input) {
+        if (!this.isValid()) {
+            return false;
+        }
+        input = input ? local__createLocal(input).utcOffset() : 0;
+
+        return (this.utcOffset() - input) % 60 === 0;
+    }
+
+    function isDaylightSavingTime () {
+        return (
+            this.utcOffset() > this.clone().month(0).utcOffset() ||
+            this.utcOffset() > this.clone().month(5).utcOffset()
+        );
+    }
+
+    function isDaylightSavingTimeShifted () {
+        if (!isUndefined(this._isDSTShifted)) {
+            return this._isDSTShifted;
+        }
+
+        var c = {};
+
+        copyConfig(c, this);
+        c = prepareConfig(c);
+
+        if (c._a) {
+            var other = c._isUTC ? create_utc__createUTC(c._a) : local__createLocal(c._a);
+            this._isDSTShifted = this.isValid() &&
+                compareArrays(c._a, other.toArray()) > 0;
+        } else {
+            this._isDSTShifted = false;
+        }
+
+        return this._isDSTShifted;
+    }
+
+    function isLocal () {
+        return this.isValid() ? !this._isUTC : false;
+    }
+
+    function isUtcOffset () {
+        return this.isValid() ? this._isUTC : false;
+    }
+
+    function isUtc () {
+        return this.isValid() ? this._isUTC && this._offset === 0 : false;
+    }
+
+    // ASP.NET json date format regex
+    var aspNetRegex = /^(\-)?(?:(\d*)[. ])?(\d+)\:(\d+)(?:\:(\d+)\.?(\d{3})?\d*)?$/;
+
+    // from http://docs.closure-library.googlecode.com/git/closure_goog_date_date.js.source.html
+    // somewhat more in line with 4.4.3.2 2004 spec, but allows decimal anywhere
+    // and further modified to allow for strings containing both week and day
+    var isoRegex = /^(-)?P(?:(-?[0-9,.]*)Y)?(?:(-?[0-9,.]*)M)?(?:(-?[0-9,.]*)W)?(?:(-?[0-9,.]*)D)?(?:T(?:(-?[0-9,.]*)H)?(?:(-?[0-9,.]*)M)?(?:(-?[0-9,.]*)S)?)?$/;
+
+    function create__createDuration (input, key) {
+        var duration = input,
+            // matching against regexp is expensive, do it on demand
+            match = null,
+            sign,
+            ret,
+            diffRes;
+
+        if (isDuration(input)) {
+            duration = {
+                ms : input._milliseconds,
+                d  : input._days,
+                M  : input._months
+            };
+        } else if (typeof input === 'number') {
+            duration = {};
+            if (key) {
+                duration[key] = input;
+            } else {
+                duration.milliseconds = input;
+            }
+        } else if (!!(match = aspNetRegex.exec(input))) {
+            sign = (match[1] === '-') ? -1 : 1;
+            duration = {
+                y  : 0,
+                d  : toInt(match[DATE])        * sign,
+                h  : toInt(match[HOUR])        * sign,
+                m  : toInt(match[MINUTE])      * sign,
+                s  : toInt(match[SECOND])      * sign,
+                ms : toInt(match[MILLISECOND]) * sign
+            };
+        } else if (!!(match = isoRegex.exec(input))) {
+            sign = (match[1] === '-') ? -1 : 1;
+            duration = {
+                y : parseIso(match[2], sign),
+                M : parseIso(match[3], sign),
+                w : parseIso(match[4], sign),
+                d : parseIso(match[5], sign),
+                h : parseIso(match[6], sign),
+                m : parseIso(match[7], sign),
+                s : parseIso(match[8], sign)
+            };
+        } else if (duration == null) {// checks for null or undefined
+            duration = {};
+        } else if (typeof duration === 'object' && ('from' in duration || 'to' in duration)) {
+            diffRes = momentsDifference(local__createLocal(duration.from), local__createLocal(duration.to));
+
+            duration = {};
+            duration.ms = diffRes.milliseconds;
+            duration.M = diffRes.months;
+        }
+
+        ret = new Duration(duration);
+
+        if (isDuration(input) && hasOwnProp(input, '_locale')) {
+            ret._locale = input._locale;
+        }
+
+        return ret;
+    }
+
+    create__createDuration.fn = Duration.prototype;
+
+    function parseIso (inp, sign) {
+        // We'd normally use ~~inp for this, but unfortunately it also
+        // converts floats to ints.
+        // inp may be undefined, so careful calling replace on it.
+        var res = inp && parseFloat(inp.replace(',', '.'));
+        // apply sign while we're at it
+        return (isNaN(res) ? 0 : res) * sign;
+    }
+
+    function positiveMomentsDifference(base, other) {
+        var res = {milliseconds: 0, months: 0};
+
+        res.months = other.month() - base.month() +
+            (other.year() - base.year()) * 12;
+        if (base.clone().add(res.months, 'M').isAfter(other)) {
+            --res.months;
+        }
+
+        res.milliseconds = +other - +(base.clone().add(res.months, 'M'));
+
+        return res;
+    }
+
+    function momentsDifference(base, other) {
+        var res;
+        if (!(base.isValid() && other.isValid())) {
+            return {milliseconds: 0, months: 0};
+        }
+
+        other = cloneWithOffset(other, base);
+        if (base.isBefore(other)) {
+            res = positiveMomentsDifference(base, other);
+        } else {
+            res = positiveMomentsDifference(other, base);
+            res.milliseconds = -res.milliseconds;
+            res.months = -res.months;
+        }
+
+        return res;
+    }
+
+    function absRound (number) {
+        if (number < 0) {
+            return Math.round(-1 * number) * -1;
+        } else {
+            return Math.round(number);
+        }
+    }
+
+    // TODO: remove 'name' arg after deprecation is removed
+    function createAdder(direction, name) {
+        return function (val, period) {
+            var dur, tmp;
+            //invert the arguments, but complain about it
+            if (period !== null && !isNaN(+period)) {
+                deprecateSimple(name, 'moment().' + name  + '(period, number) is deprecated. Please use moment().' + name + '(number, period).');
+                tmp = val; val = period; period = tmp;
+            }
+
+            val = typeof val === 'string' ? +val : val;
+            dur = create__createDuration(val, period);
+            add_subtract__addSubtract(this, dur, direction);
+            return this;
+        };
+    }
+
+    function add_subtract__addSubtract (mom, duration, isAdding, updateOffset) {
+        var milliseconds = duration._milliseconds,
+            days = absRound(duration._days),
+            months = absRound(duration._months);
+
+        if (!mom.isValid()) {
+            // No op
+            return;
+        }
+
+        updateOffset = updateOffset == null ? true : updateOffset;
+
+        if (milliseconds) {
+            mom._d.setTime(mom._d.valueOf() + milliseconds * isAdding);
+        }
+        if (days) {
+            get_set__set(mom, 'Date', get_set__get(mom, 'Date') + days * isAdding);
+        }
+        if (months) {
+            setMonth(mom, get_set__get(mom, 'Month') + months * isAdding);
+        }
+        if (updateOffset) {
+            utils_hooks__hooks.updateOffset(mom, days || months);
+        }
+    }
+
+    var add_subtract__add      = createAdder(1, 'add');
+    var add_subtract__subtract = createAdder(-1, 'subtract');
+
+    function moment_calendar__calendar (time, formats) {
+        // We want to compare the start of today, vs this.
+        // Getting start-of-today depends on whether we're local/utc/offset or not.
+        var now = time || local__createLocal(),
+            sod = cloneWithOffset(now, this).startOf('day'),
+            diff = this.diff(sod, 'days', true),
+            format = diff < -6 ? 'sameElse' :
+                diff < -1 ? 'lastWeek' :
+                diff < 0 ? 'lastDay' :
+                diff < 1 ? 'sameDay' :
+                diff < 2 ? 'nextDay' :
+                diff < 7 ? 'nextWeek' : 'sameElse';
+
+        var output = formats && (isFunction(formats[format]) ? formats[format]() : formats[format]);
+
+        return this.format(output || this.localeData().calendar(format, this, local__createLocal(now)));
+    }
+
+    function clone () {
+        return new Moment(this);
+    }
+
+    function isAfter (input, units) {
+        var localInput = isMoment(input) ? input : local__createLocal(input);
+        if (!(this.isValid() && localInput.isValid())) {
+            return false;
+        }
+        units = normalizeUnits(!isUndefined(units) ? units : 'millisecond');
+        if (units === 'millisecond') {
+            return this.valueOf() > localInput.valueOf();
+        } else {
+            return localInput.valueOf() < this.clone().startOf(units).valueOf();
+        }
+    }
+
+    function isBefore (input, units) {
+        var localInput = isMoment(input) ? input : local__createLocal(input);
+        if (!(this.isValid() && localInput.isValid())) {
+            return false;
+        }
+        units = normalizeUnits(!isUndefined(units) ? units : 'millisecond');
+        if (units === 'millisecond') {
+            return this.valueOf() < localInput.valueOf();
+        } else {
+            return this.clone().endOf(units).valueOf() < localInput.valueOf();
+        }
+    }
+
+    function isBetween (from, to, units, inclusivity) {
+        inclusivity = inclusivity || '()';
+        return (inclusivity[0] === '(' ? this.isAfter(from, units) : !this.isBefore(from, units)) &&
+            (inclusivity[1] === ')' ? this.isBefore(to, units) : !this.isAfter(to, units));
+    }
+
+    function isSame (input, units) {
+        var localInput = isMoment(input) ? input : local__createLocal(input),
+            inputMs;
+        if (!(this.isValid() && localInput.isValid())) {
+            return false;
+        }
+        units = normalizeUnits(units || 'millisecond');
+        if (units === 'millisecond') {
+            return this.valueOf() === localInput.valueOf();
+        } else {
+            inputMs = localInput.valueOf();
+            return this.clone().startOf(units).valueOf() <= inputMs && inputMs <= this.clone().endOf(units).valueOf();
+        }
+    }
+
+    function isSameOrAfter (input, units) {
+        return this.isSame(input, units) || this.isAfter(input,units);
+    }
+
+    function isSameOrBefore (input, units) {
+        return this.isSame(input, units) || this.isBefore(input,units);
+    }
+
+    function diff (input, units, asFloat) {
+        var that,
+            zoneDelta,
+            delta, output;
+
+        if (!this.isValid()) {
+            return NaN;
+        }
+
+        that = cloneWithOffset(input, this);
+
+        if (!that.isValid()) {
+            return NaN;
+        }
+
+        zoneDelta = (that.utcOffset() - this.utcOffset()) * 6e4;
+
+        units = normalizeUnits(units);
+
+        if (units === 'year' || units === 'month' || units === 'quarter') {
+            output = monthDiff(this, that);
+            if (units === 'quarter') {
+                output = output / 3;
+            } else if (units === 'year') {
+                output = output / 12;
+            }
+        } else {
+            delta = this - that;
+            output = units === 'second' ? delta / 1e3 : // 1000
+                units === 'minute' ? delta / 6e4 : // 1000 * 60
+                units === 'hour' ? delta / 36e5 : // 1000 * 60 * 60
+                units === 'day' ? (delta - zoneDelta) / 864e5 : // 1000 * 60 * 60 * 24, negate dst
+                units === 'week' ? (delta - zoneDelta) / 6048e5 : // 1000 * 60 * 60 * 24 * 7, negate dst
+                delta;
+        }
+        return asFloat ? output : absFloor(output);
+    }
+
+    function monthDiff (a, b) {
+        // difference in months
+        var wholeMonthDiff = ((b.year() - a.year()) * 12) + (b.month() - a.month()),
+            // b is in (anchor - 1 month, anchor + 1 month)
+            anchor = a.clone().add(wholeMonthDiff, 'months'),
+            anchor2, adjust;
+
+        if (b - anchor < 0) {
+            anchor2 = a.clone().add(wholeMonthDiff - 1, 'months');
+            // linear across the month
+            adjust = (b - anchor) / (anchor - anchor2);
+        } else {
+            anchor2 = a.clone().add(wholeMonthDiff + 1, 'months');
+            // linear across the month
+            adjust = (b - anchor) / (anchor2 - anchor);
+        }
+
+        //check for negative zero, return zero if negative zero
+        return -(wholeMonthDiff + adjust) || 0;
+    }
+
+    utils_hooks__hooks.defaultFormat = 'YYYY-MM-DDTHH:mm:ssZ';
+    utils_hooks__hooks.defaultFormatUtc = 'YYYY-MM-DDTHH:mm:ss[Z]';
+
+    function toString () {
+        return this.clone().locale('en').format('ddd MMM DD YYYY HH:mm:ss [GMT]ZZ');
+    }
+
+    function moment_format__toISOString () {
+        var m = this.clone().utc();
+        if (0 < m.year() && m.year() <= 9999) {
+            if (isFunction(Date.prototype.toISOString)) {
+                // native implementation is ~50x faster, use it when we can
+                return this.toDate().toISOString();
+            } else {
+                return formatMoment(m, 'YYYY-MM-DD[T]HH:mm:ss.SSS[Z]');
+            }
+        } else {
+            return formatMoment(m, 'YYYYYY-MM-DD[T]HH:mm:ss.SSS[Z]');
+        }
+    }
+
+    function format (inputString) {
+        if (!inputString) {
+            inputString = this.isUtc() ? utils_hooks__hooks.defaultFormatUtc : utils_hooks__hooks.defaultFormat;
+        }
+        var output = formatMoment(this, inputString);
+        return this.localeData().postformat(output);
+    }
+
+    function from (time, withoutSuffix) {
+        if (this.isValid() &&
+                ((isMoment(time) && time.isValid()) ||
+                 local__createLocal(time).isValid())) {
+            return create__createDuration({to: this, from: time}).locale(this.locale()).humanize(!withoutSuffix);
+        } else {
+            return this.localeData().invalidDate();
+        }
+    }
+
+    function fromNow (withoutSuffix) {
+        return this.from(local__createLocal(), withoutSuffix);
+    }
+
+    function to (time, withoutSuffix) {
+        if (this.isValid() &&
+                ((isMoment(time) && time.isValid()) ||
+                 local__createLocal(time).isValid())) {
+            return create__createDuration({from: this, to: time}).locale(this.locale()).humanize(!withoutSuffix);
+        } else {
+            return this.localeData().invalidDate();
+        }
+    }
+
+    function toNow (withoutSuffix) {
+        return this.to(local__createLocal(), withoutSuffix);
+    }
+
+    // If passed a locale key, it will set the locale for this
+    // instance.  Otherwise, it will return the locale configuration
+    // variables for this instance.
+    function locale (key) {
+        var newLocaleData;
+
+        if (key === undefined) {
+            return this._locale._abbr;
+        } else {
+            newLocaleData = locale_locales__getLocale(key);
+            if (newLocaleData != null) {
+                this._locale = newLocaleData;
+            }
+            return this;
+        }
+    }
+
+    var lang = deprecate(
+        'moment().lang() is deprecated. Instead, use moment().localeData() to get the language configuration. Use moment().locale() to change languages.',
+        function (key) {
+            if (key === undefined) {
+                return this.localeData();
+            } else {
+                return this.locale(key);
+            }
+        }
+    );
+
+    function localeData () {
+        return this._locale;
+    }
+
+    function startOf (units) {
+        units = normalizeUnits(units);
+        // the following switch intentionally omits break keywords
+        // to utilize falling through the cases.
+        switch (units) {
+        case 'year':
+            this.month(0);
+            /* falls through */
+        case 'quarter':
+        case 'month':
+            this.date(1);
+            /* falls through */
+        case 'week':
+        case 'isoWeek':
+        case 'day':
+        case 'date':
+            this.hours(0);
+            /* falls through */
+        case 'hour':
+            this.minutes(0);
+            /* falls through */
+        case 'minute':
+            this.seconds(0);
+            /* falls through */
+        case 'second':
+            this.milliseconds(0);
+        }
+
+        // weeks are a special case
+        if (units === 'week') {
+            this.weekday(0);
+        }
+        if (units === 'isoWeek') {
+            this.isoWeekday(1);
+        }
+
+        // quarters are also special
+        if (units === 'quarter') {
+            this.month(Math.floor(this.month() / 3) * 3);
+        }
+
+        return this;
+    }
+
+    function endOf (units) {
+        units = normalizeUnits(units);
+        if (units === undefined || units === 'millisecond') {
+            return this;
+        }
+
+        // 'date' is an alias for 'day', so it should be considered as such.
+        if (units === 'date') {
+            units = 'day';
+        }
+
+        return this.startOf(units).add(1, (units === 'isoWeek' ? 'week' : units)).subtract(1, 'ms');
+    }
+
+    function to_type__valueOf () {
+        return this._d.valueOf() - ((this._offset || 0) * 60000);
+    }
+
+    function unix () {
+        return Math.floor(this.valueOf() / 1000);
+    }
+
+    function toDate () {
+        return this._offset ? new Date(this.valueOf()) : this._d;
+    }
+
+    function toArray () {
+        var m = this;
+        return [m.year(), m.month(), m.date(), m.hour(), m.minute(), m.second(), m.millisecond()];
+    }
+
+    function toObject () {
+        var m = this;
+        return {
+            years: m.year(),
+            months: m.month(),
+            date: m.date(),
+            hours: m.hours(),
+            minutes: m.minutes(),
+            seconds: m.seconds(),
+            milliseconds: m.milliseconds()
+        };
+    }
+
+    function toJSON () {
+        // new Date(NaN).toJSON() === null
+        return this.isValid() ? this.toISOString() : null;
+    }
+
+    function moment_valid__isValid () {
+        return valid__isValid(this);
+    }
+
+    function parsingFlags () {
+        return extend({}, getParsingFlags(this));
+    }
+
+    function invalidAt () {
+        return getParsingFlags(this).overflow;
+    }
+
+    function creationData() {
+        return {
+            input: this._i,
+            format: this._f,
+            locale: this._locale,
+            isUTC: this._isUTC,
+            strict: this._strict
+        };
+    }
+
+    // FORMATTING
+
+    addFormatToken(0, ['gg', 2], 0, function () {
+        return this.weekYear() % 100;
+    });
+
+    addFormatToken(0, ['GG', 2], 0, function () {
+        return this.isoWeekYear() % 100;
+    });
+
+    function addWeekYearFormatToken (token, getter) {
+        addFormatToken(0, [token, token.length], 0, getter);
+    }
+
+    addWeekYearFormatToken('gggg',     'weekYear');
+    addWeekYearFormatToken('ggggg',    'weekYear');
+    addWeekYearFormatToken('GGGG',  'isoWeekYear');
+    addWeekYearFormatToken('GGGGG', 'isoWeekYear');
+
+    // ALIASES
+
+    addUnitAlias('weekYear', 'gg');
+    addUnitAlias('isoWeekYear', 'GG');
+
+    // PARSING
+
+    addRegexToken('G',      matchSigned);
+    addRegexToken('g',      matchSigned);
+    addRegexToken('GG',     match1to2, match2);
+    addRegexToken('gg',     match1to2, match2);
+    addRegexToken('GGGG',   match1to4, match4);
+    addRegexToken('gggg',   match1to4, match4);
+    addRegexToken('GGGGG',  match1to6, match6);
+    addRegexToken('ggggg',  match1to6, match6);
+
+    addWeekParseToken(['gggg', 'ggggg', 'GGGG', 'GGGGG'], function (input, week, config, token) {
+        week[token.substr(0, 2)] = toInt(input);
+    });
+
+    addWeekParseToken(['gg', 'GG'], function (input, week, config, token) {
+        week[token] = utils_hooks__hooks.parseTwoDigitYear(input);
+    });
+
+    // MOMENTS
+
+    function getSetWeekYear (input) {
+        return getSetWeekYearHelper.call(this,
+                input,
+                this.week(),
+                this.weekday(),
+                this.localeData()._week.dow,
+                this.localeData()._week.doy);
+    }
+
+    function getSetISOWeekYear (input) {
+        return getSetWeekYearHelper.call(this,
+                input, this.isoWeek(), this.isoWeekday(), 1, 4);
+    }
+
+    function getISOWeeksInYear () {
+        return weeksInYear(this.year(), 1, 4);
+    }
+
+    function getWeeksInYear () {
+        var weekInfo = this.localeData()._week;
+        return weeksInYear(this.year(), weekInfo.dow, weekInfo.doy);
+    }
+
+    function getSetWeekYearHelper(input, week, weekday, dow, doy) {
+        var weeksTarget;
+        if (input == null) {
+            return weekOfYear(this, dow, doy).year;
+        } else {
+            weeksTarget = weeksInYear(input, dow, doy);
+            if (week > weeksTarget) {
+                week = weeksTarget;
+            }
+            return setWeekAll.call(this, input, week, weekday, dow, doy);
+        }
+    }
+
+    function setWeekAll(weekYear, week, weekday, dow, doy) {
+        var dayOfYearData = dayOfYearFromWeeks(weekYear, week, weekday, dow, doy),
+            date = createUTCDate(dayOfYearData.year, 0, dayOfYearData.dayOfYear);
+
+        this.year(date.getUTCFullYear());
+        this.month(date.getUTCMonth());
+        this.date(date.getUTCDate());
+        return this;
+    }
+
+    // FORMATTING
+
+    addFormatToken('Q', 0, 'Qo', 'quarter');
+
+    // ALIASES
+
+    addUnitAlias('quarter', 'Q');
+
+    // PARSING
+
+    addRegexToken('Q', match1);
+    addParseToken('Q', function (input, array) {
+        array[MONTH] = (toInt(input) - 1) * 3;
+    });
+
+    // MOMENTS
+
+    function getSetQuarter (input) {
+        return input == null ? Math.ceil((this.month() + 1) / 3) : this.month((input - 1) * 3 + this.month() % 3);
+    }
+
+    // FORMATTING
+
+    addFormatToken('w', ['ww', 2], 'wo', 'week');
+    addFormatToken('W', ['WW', 2], 'Wo', 'isoWeek');
+
+    // ALIASES
+
+    addUnitAlias('week', 'w');
+    addUnitAlias('isoWeek', 'W');
+
+    // PARSING
+
+    addRegexToken('w',  match1to2);
+    addRegexToken('ww', match1to2, match2);
+    addRegexToken('W',  match1to2);
+    addRegexToken('WW', match1to2, match2);
+
+    addWeekParseToken(['w', 'ww', 'W', 'WW'], function (input, week, config, token) {
+        week[token.substr(0, 1)] = toInt(input);
+    });
+
+    // HELPERS
+
+    // LOCALES
+
+    function localeWeek (mom) {
+        return weekOfYear(mom, this._week.dow, this._week.doy).week;
+    }
+
+    var defaultLocaleWeek = {
+        dow : 0, // Sunday is the first day of the week.
+        doy : 6  // The week that contains Jan 1st is the first week of the year.
+    };
+
+    function localeFirstDayOfWeek () {
+        return this._week.dow;
+    }
+
+    function localeFirstDayOfYear () {
+        return this._week.doy;
+    }
+
+    // MOMENTS
+
+    function getSetWeek (input) {
+        var week = this.localeData().week(this);
+        return input == null ? week : this.add((input - week) * 7, 'd');
+    }
+
+    function getSetISOWeek (input) {
+        var week = weekOfYear(this, 1, 4).week;
+        return input == null ? week : this.add((input - week) * 7, 'd');
+    }
+
+    // FORMATTING
+
+    addFormatToken('D', ['DD', 2], 'Do', 'date');
+
+    // ALIASES
+
+    addUnitAlias('date', 'D');
+
+    // PARSING
+
+    addRegexToken('D',  match1to2);
+    addRegexToken('DD', match1to2, match2);
+    addRegexToken('Do', function (isStrict, locale) {
+        return isStrict ? locale._ordinalParse : locale._ordinalParseLenient;
+    });
+
+    addParseToken(['D', 'DD'], DATE);
+    addParseToken('Do', function (input, array) {
+        array[DATE] = toInt(input.match(match1to2)[0], 10);
+    });
+
+    // MOMENTS
+
+    var getSetDayOfMonth = makeGetSet('Date', true);
+
+    // FORMATTING
+
+    addFormatToken('d', 0, 'do', 'day');
+
+    addFormatToken('dd', 0, 0, function (format) {
+        return this.localeData().weekdaysMin(this, format);
+    });
+
+    addFormatToken('ddd', 0, 0, function (format) {
+        return this.localeData().weekdaysShort(this, format);
+    });
+
+    addFormatToken('dddd', 0, 0, function (format) {
+        return this.localeData().weekdays(this, format);
+    });
+
+    addFormatToken('e', 0, 0, 'weekday');
+    addFormatToken('E', 0, 0, 'isoWeekday');
+
+    // ALIASES
+
+    addUnitAlias('day', 'd');
+    addUnitAlias('weekday', 'e');
+    addUnitAlias('isoWeekday', 'E');
+
+    // PARSING
+
+    addRegexToken('d',    match1to2);
+    addRegexToken('e',    match1to2);
+    addRegexToken('E',    match1to2);
+    addRegexToken('dd',   function (isStrict, locale) {
+        return locale.weekdaysMinRegex(isStrict);
+    });
+    addRegexToken('ddd',   function (isStrict, locale) {
+        return locale.weekdaysShortRegex(isStrict);
+    });
+    addRegexToken('dddd',   function (isStrict, locale) {
+        return locale.weekdaysRegex(isStrict);
+    });
+
+    addWeekParseToken(['dd', 'ddd', 'dddd'], function (input, week, config, token) {
+        var weekday = config._locale.weekdaysParse(input, token, config._strict);
+        // if we didn't get a weekday name, mark the date as invalid
+        if (weekday != null) {
+            week.d = weekday;
+        } else {
+            getParsingFlags(config).invalidWeekday = input;
+        }
+    });
+
+    addWeekParseToken(['d', 'e', 'E'], function (input, week, config, token) {
+        week[token] = toInt(input);
+    });
+
+    // HELPERS
+
+    function parseWeekday(input, locale) {
+        if (typeof input !== 'string') {
+            return input;
+        }
+
+        if (!isNaN(input)) {
+            return parseInt(input, 10);
+        }
+
+        input = locale.weekdaysParse(input);
+        if (typeof input === 'number') {
+            return input;
+        }
+
+        return null;
+    }
+
+    // LOCALES
+
+    var defaultLocaleWeekdays = 'Sunday_Monday_Tuesday_Wednesday_Thursday_Friday_Saturday'.split('_');
+    function localeWeekdays (m, format) {
+        return isArray(this._weekdays) ? this._weekdays[m.day()] :
+            this._weekdays[this._weekdays.isFormat.test(format) ? 'format' : 'standalone'][m.day()];
+    }
+
+    var defaultLocaleWeekdaysShort = 'Sun_Mon_Tue_Wed_Thu_Fri_Sat'.split('_');
+    function localeWeekdaysShort (m) {
+        return this._weekdaysShort[m.day()];
+    }
+
+    var defaultLocaleWeekdaysMin = 'Su_Mo_Tu_We_Th_Fr_Sa'.split('_');
+    function localeWeekdaysMin (m) {
+        return this._weekdaysMin[m.day()];
+    }
+
+    function day_of_week__handleStrictParse(weekdayName, format, strict) {
+        var i, ii, mom, llc = weekdayName.toLocaleLowerCase();
+        if (!this._weekdaysParse) {
+            this._weekdaysParse = [];
+            this._shortWeekdaysParse = [];
+            this._minWeekdaysParse = [];
+
+            for (i = 0; i < 7; ++i) {
+                mom = create_utc__createUTC([2000, 1]).day(i);
+                this._minWeekdaysParse[i] = this.weekdaysMin(mom, '').toLocaleLowerCase();
+                this._shortWeekdaysParse[i] = this.weekdaysShort(mom, '').toLocaleLowerCase();
+                this._weekdaysParse[i] = this.weekdays(mom, '').toLocaleLowerCase();
+            }
+        }
+
+        if (strict) {
+            if (format === 'dddd') {
+                ii = indexOf.call(this._weekdaysParse, llc);
+                return ii !== -1 ? ii : null;
+            } else if (format === 'ddd') {
+                ii = indexOf.call(this._shortWeekdaysParse, llc);
+                return ii !== -1 ? ii : null;
+            } else {
+                ii = indexOf.call(this._minWeekdaysParse, llc);
+                return ii !== -1 ? ii : null;
+            }
+        } else {
+            if (format === 'dddd') {
+                ii = indexOf.call(this._weekdaysParse, llc);
+                if (ii !== -1) {
+                    return ii;
+                }
+                ii = indexOf.call(this._shortWeekdaysParse, llc);
+                if (ii !== -1) {
+                    return ii;
+                }
+                ii = indexOf.call(this._minWeekdaysParse, llc);
+                return ii !== -1 ? ii : null;
+            } else if (format === 'ddd') {
+                ii = indexOf.call(this._shortWeekdaysParse, llc);
+                if (ii !== -1) {
+                    return ii;
+                }
+                ii = indexOf.call(this._weekdaysParse, llc);
+                if (ii !== -1) {
+                    return ii;
+                }
+                ii = indexOf.call(this._minWeekdaysParse, llc);
+                return ii !== -1 ? ii : null;
+            } else {
+                ii = indexOf.call(this._minWeekdaysParse, llc);
+                if (ii !== -1) {
+                    return ii;
+                }
+                ii = indexOf.call(this._weekdaysParse, llc);
+                if (ii !== -1) {
+                    return ii;
+                }
+                ii = indexOf.call(this._shortWeekdaysParse, llc);
+                return ii !== -1 ? ii : null;
+            }
+        }
+    }
+
+    function localeWeekdaysParse (weekdayName, format, strict) {
+        var i, mom, regex;
+
+        if (this._weekdaysParseExact) {
+            return day_of_week__handleStrictParse.call(this, weekdayName, format, strict);
+        }
+
+        if (!this._weekdaysParse) {
+            this._weekdaysParse = [];
+            this._minWeekdaysParse = [];
+            this._shortWeekdaysParse = [];
+            this._fullWeekdaysParse = [];
+        }
+
+        for (i = 0; i < 7; i++) {
+            // make the regex if we don't have it already
+
+            mom = create_utc__createUTC([2000, 1]).day(i);
+            if (strict && !this._fullWeekdaysParse[i]) {
+                this._fullWeekdaysParse[i] = new RegExp('^' + this.weekdays(mom, '').replace('.', '\.?') + '$', 'i');
+                this._shortWeekdaysParse[i] = new RegExp('^' + this.weekdaysShort(mom, '').replace('.', '\.?') + '$', 'i');
+                this._minWeekdaysParse[i] = new RegExp('^' + this.weekdaysMin(mom, '').replace('.', '\.?') + '$', 'i');
+            }
+            if (!this._weekdaysParse[i]) {
+                regex = '^' + this.weekdays(mom, '') + '|^' + this.weekdaysShort(mom, '') + '|^' + this.weekdaysMin(mom, '');
+                this._weekdaysParse[i] = new RegExp(regex.replace('.', ''), 'i');
+            }
+            // test the regex
+            if (strict && format === 'dddd' && this._fullWeekdaysParse[i].test(weekdayName)) {
+                return i;
+            } else if (strict && format === 'ddd' && this._shortWeekdaysParse[i].test(weekdayName)) {
+                return i;
+            } else if (strict && format === 'dd' && this._minWeekdaysParse[i].test(weekdayName)) {
+                return i;
+            } else if (!strict && this._weekdaysParse[i].test(weekdayName)) {
+                return i;
+            }
+        }
+    }
+
+    // MOMENTS
+
+    function getSetDayOfWeek (input) {
+        if (!this.isValid()) {
+            return input != null ? this : NaN;
+        }
+        var day = this._isUTC ? this._d.getUTCDay() : this._d.getDay();
+        if (input != null) {
+            input = parseWeekday(input, this.localeData());
+            return this.add(input - day, 'd');
+        } else {
+            return day;
+        }
+    }
+
+    function getSetLocaleDayOfWeek (input) {
+        if (!this.isValid()) {
+            return input != null ? this : NaN;
+        }
+        var weekday = (this.day() + 7 - this.localeData()._week.dow) % 7;
+        return input == null ? weekday : this.add(input - weekday, 'd');
+    }
+
+    function getSetISODayOfWeek (input) {
+        if (!this.isValid()) {
+            return input != null ? this : NaN;
+        }
+        // behaves the same as moment#day except
+        // as a getter, returns 7 instead of 0 (1-7 range instead of 0-6)
+        // as a setter, sunday should belong to the previous week.
+        return input == null ? this.day() || 7 : this.day(this.day() % 7 ? input : input - 7);
+    }
+
+    var defaultWeekdaysRegex = matchWord;
+    function weekdaysRegex (isStrict) {
+        if (this._weekdaysParseExact) {
+            if (!hasOwnProp(this, '_weekdaysRegex')) {
+                computeWeekdaysParse.call(this);
+            }
+            if (isStrict) {
+                return this._weekdaysStrictRegex;
+            } else {
+                return this._weekdaysRegex;
+            }
+        } else {
+            return this._weekdaysStrictRegex && isStrict ?
+                this._weekdaysStrictRegex : this._weekdaysRegex;
+        }
+    }
+
+    var defaultWeekdaysShortRegex = matchWord;
+    function weekdaysShortRegex (isStrict) {
+        if (this._weekdaysParseExact) {
+            if (!hasOwnProp(this, '_weekdaysRegex')) {
+                computeWeekdaysParse.call(this);
+            }
+            if (isStrict) {
+                return this._weekdaysShortStrictRegex;
+            } else {
+                return this._weekdaysShortRegex;
+            }
+        } else {
+            return this._weekdaysShortStrictRegex && isStrict ?
+                this._weekdaysShortStrictRegex : this._weekdaysShortRegex;
+        }
+    }
+
+    var defaultWeekdaysMinRegex = matchWord;
+    function weekdaysMinRegex (isStrict) {
+        if (this._weekdaysParseExact) {
+            if (!hasOwnProp(this, '_weekdaysRegex')) {
+                computeWeekdaysParse.call(this);
+            }
+            if (isStrict) {
+                return this._weekdaysMinStrictRegex;
+            } else {
+                return this._weekdaysMinRegex;
+            }
+        } else {
+            return this._weekdaysMinStrictRegex && isStrict ?
+                this._weekdaysMinStrictRegex : this._weekdaysMinRegex;
+        }
+    }
+
+
+    function computeWeekdaysParse () {
+        function cmpLenRev(a, b) {
+            return b.length - a.length;
+        }
+
+        var minPieces = [], shortPieces = [], longPieces = [], mixedPieces = [],
+            i, mom, minp, shortp, longp;
+        for (i = 0; i < 7; i++) {
+            // make the regex if we don't have it already
+            mom = create_utc__createUTC([2000, 1]).day(i);
+            minp = this.weekdaysMin(mom, '');
+            shortp = this.weekdaysShort(mom, '');
+            longp = this.weekdays(mom, '');
+            minPieces.push(minp);
+            shortPieces.push(shortp);
+            longPieces.push(longp);
+            mixedPieces.push(minp);
+            mixedPieces.push(shortp);
+            mixedPieces.push(longp);
+        }
+        // Sorting makes sure if one weekday (or abbr) is a prefix of another it
+        // will match the longer piece.
+        minPieces.sort(cmpLenRev);
+        shortPieces.sort(cmpLenRev);
+        longPieces.sort(cmpLenRev);
+        mixedPieces.sort(cmpLenRev);
+        for (i = 0; i < 7; i++) {
+            shortPieces[i] = regexEscape(shortPieces[i]);
+            longPieces[i] = regexEscape(longPieces[i]);
+            mixedPieces[i] = regexEscape(mixedPieces[i]);
+        }
+
+        this._weekdaysRegex = new RegExp('^(' + mixedPieces.join('|') + ')', 'i');
+        this._weekdaysShortRegex = this._weekdaysRegex;
+        this._weekdaysMinRegex = this._weekdaysRegex;
+
+        this._weekdaysStrictRegex = new RegExp('^(' + longPieces.join('|') + ')', 'i');
+        this._weekdaysShortStrictRegex = new RegExp('^(' + shortPieces.join('|') + ')', 'i');
+        this._weekdaysMinStrictRegex = new RegExp('^(' + minPieces.join('|') + ')', 'i');
+    }
+
+    // FORMATTING
+
+    addFormatToken('DDD', ['DDDD', 3], 'DDDo', 'dayOfYear');
+
+    // ALIASES
+
+    addUnitAlias('dayOfYear', 'DDD');
+
+    // PARSING
+
+    addRegexToken('DDD',  match1to3);
+    addRegexToken('DDDD', match3);
+    addParseToken(['DDD', 'DDDD'], function (input, array, config) {
+        config._dayOfYear = toInt(input);
+    });
+
+    // HELPERS
+
+    // MOMENTS
+
+    function getSetDayOfYear (input) {
+        var dayOfYear = Math.round((this.clone().startOf('day') - this.clone().startOf('year')) / 864e5) + 1;
+        return input == null ? dayOfYear : this.add((input - dayOfYear), 'd');
+    }
+
+    // FORMATTING
+
+    function hFormat() {
+        return this.hours() % 12 || 12;
+    }
+
+    function kFormat() {
+        return this.hours() || 24;
+    }
+
+    addFormatToken('H', ['HH', 2], 0, 'hour');
+    addFormatToken('h', ['hh', 2], 0, hFormat);
+    addFormatToken('k', ['kk', 2], 0, kFormat);
+
+    addFormatToken('hmm', 0, 0, function () {
+        return '' + hFormat.apply(this) + zeroFill(this.minutes(), 2);
+    });
+
+    addFormatToken('hmmss', 0, 0, function () {
+        return '' + hFormat.apply(this) + zeroFill(this.minutes(), 2) +
+            zeroFill(this.seconds(), 2);
+    });
+
+    addFormatToken('Hmm', 0, 0, function () {
+        return '' + this.hours() + zeroFill(this.minutes(), 2);
+    });
+
+    addFormatToken('Hmmss', 0, 0, function () {
+        return '' + this.hours() + zeroFill(this.minutes(), 2) +
+            zeroFill(this.seconds(), 2);
+    });
+
+    function meridiem (token, lowercase) {
+        addFormatToken(token, 0, 0, function () {
+            return this.localeData().meridiem(this.hours(), this.minutes(), lowercase);
+        });
+    }
+
+    meridiem('a', true);
+    meridiem('A', false);
+
+    // ALIASES
+
+    addUnitAlias('hour', 'h');
+
+    // PARSING
+
+    function matchMeridiem (isStrict, locale) {
+        return locale._meridiemParse;
+    }
+
+    addRegexToken('a',  matchMeridiem);
+    addRegexToken('A',  matchMeridiem);
+    addRegexToken('H',  match1to2);
+    addRegexToken('h',  match1to2);
+    addRegexToken('HH', match1to2, match2);
+    addRegexToken('hh', match1to2, match2);
+
+    addRegexToken('hmm', match3to4);
+    addRegexToken('hmmss', match5to6);
+    addRegexToken('Hmm', match3to4);
+    addRegexToken('Hmmss', match5to6);
+
+    addParseToken(['H', 'HH'], HOUR);
+    addParseToken(['a', 'A'], function (input, array, config) {
+        config._isPm = config._locale.isPM(input);
+        config._meridiem = input;
+    });
+    addParseToken(['h', 'hh'], function (input, array, config) {
+        array[HOUR] = toInt(input);
+        getParsingFlags(config).bigHour = true;
+    });
+    addParseToken('hmm', function (input, array, config) {
+        var pos = input.length - 2;
+        array[HOUR] = toInt(input.substr(0, pos));
+        array[MINUTE] = toInt(input.substr(pos));
+        getParsingFlags(config).bigHour = true;
+    });
+    addParseToken('hmmss', function (input, array, config) {
+        var pos1 = input.length - 4;
+        var pos2 = input.length - 2;
+        array[HOUR] = toInt(input.substr(0, pos1));
+        array[MINUTE] = toInt(input.substr(pos1, 2));
+        array[SECOND] = toInt(input.substr(pos2));
+        getParsingFlags(config).bigHour = true;
+    });
+    addParseToken('Hmm', function (input, array, config) {
+        var pos = input.length - 2;
+        array[HOUR] = toInt(input.substr(0, pos));
+        array[MINUTE] = toInt(input.substr(pos));
+    });
+    addParseToken('Hmmss', function (input, array, config) {
+        var pos1 = input.length - 4;
+        var pos2 = input.length - 2;
+        array[HOUR] = toInt(input.substr(0, pos1));
+        array[MINUTE] = toInt(input.substr(pos1, 2));
+        array[SECOND] = toInt(input.substr(pos2));
+    });
+
+    // LOCALES
+
+    function localeIsPM (input) {
+        // IE8 Quirks Mode & IE7 Standards Mode do not allow accessing strings like arrays
+        // Using charAt should be more compatible.
+        return ((input + '').toLowerCase().charAt(0) === 'p');
+    }
+
+    var defaultLocaleMeridiemParse = /[ap]\.?m?\.?/i;
+    function localeMeridiem (hours, minutes, isLower) {
+        if (hours > 11) {
+            return isLower ? 'pm' : 'PM';
+        } else {
+            return isLower ? 'am' : 'AM';
+        }
+    }
+
+
+    // MOMENTS
+
+    // Setting the hour should keep the time, because the user explicitly
+    // specified which hour he wants. So trying to maintain the same hour (in
+    // a new timezone) makes sense. Adding/subtracting hours does not follow
+    // this rule.
+    var getSetHour = makeGetSet('Hours', true);
+
+    // FORMATTING
+
+    addFormatToken('m', ['mm', 2], 0, 'minute');
+
+    // ALIASES
+
+    addUnitAlias('minute', 'm');
+
+    // PARSING
+
+    addRegexToken('m',  match1to2);
+    addRegexToken('mm', match1to2, match2);
+    addParseToken(['m', 'mm'], MINUTE);
+
+    // MOMENTS
+
+    var getSetMinute = makeGetSet('Minutes', false);
+
+    // FORMATTING
+
+    addFormatToken('s', ['ss', 2], 0, 'second');
+
+    // ALIASES
+
+    addUnitAlias('second', 's');
+
+    // PARSING
+
+    addRegexToken('s',  match1to2);
+    addRegexToken('ss', match1to2, match2);
+    addParseToken(['s', 'ss'], SECOND);
+
+    // MOMENTS
+
+    var getSetSecond = makeGetSet('Seconds', false);
+
+    // FORMATTING
+
+    addFormatToken('S', 0, 0, function () {
+        return ~~(this.millisecond() / 100);
+    });
+
+    addFormatToken(0, ['SS', 2], 0, function () {
+        return ~~(this.millisecond() / 10);
+    });
+
+    addFormatToken(0, ['SSS', 3], 0, 'millisecond');
+    addFormatToken(0, ['SSSS', 4], 0, function () {
+        return this.millisecond() * 10;
+    });
+    addFormatToken(0, ['SSSSS', 5], 0, function () {
+        return this.millisecond() * 100;
+    });
+    addFormatToken(0, ['SSSSSS', 6], 0, function () {
+        return this.millisecond() * 1000;
+    });
+    addFormatToken(0, ['SSSSSSS', 7], 0, function () {
+        return this.millisecond() * 10000;
+    });
+    addFormatToken(0, ['SSSSSSSS', 8], 0, function () {
+        return this.millisecond() * 100000;
+    });
+    addFormatToken(0, ['SSSSSSSSS', 9], 0, function () {
+        return this.millisecond() * 1000000;
+    });
+
+
+    // ALIASES
+
+    addUnitAlias('millisecond', 'ms');
+
+    // PARSING
+
+    addRegexToken('S',    match1to3, match1);
+    addRegexToken('SS',   match1to3, match2);
+    addRegexToken('SSS',  match1to3, match3);
+
+    var token;
+    for (token = 'SSSS'; token.length <= 9; token += 'S') {
+        addRegexToken(token, matchUnsigned);
+    }
+
+    function parseMs(input, array) {
+        array[MILLISECOND] = toInt(('0.' + input) * 1000);
+    }
+
+    for (token = 'S'; token.length <= 9; token += 'S') {
+        addParseToken(token, parseMs);
+    }
+    // MOMENTS
+
+    var getSetMillisecond = makeGetSet('Milliseconds', false);
+
+    // FORMATTING
+
+    addFormatToken('z',  0, 0, 'zoneAbbr');
+    addFormatToken('zz', 0, 0, 'zoneName');
+
+    // MOMENTS
+
+    function getZoneAbbr () {
+        return this._isUTC ? 'UTC' : '';
+    }
+
+    function getZoneName () {
+        return this._isUTC ? 'Coordinated Universal Time' : '';
+    }
+
+    var momentPrototype__proto = Moment.prototype;
+
+    momentPrototype__proto.add               = add_subtract__add;
+    momentPrototype__proto.calendar          = moment_calendar__calendar;
+    momentPrototype__proto.clone             = clone;
+    momentPrototype__proto.diff              = diff;
+    momentPrototype__proto.endOf             = endOf;
+    momentPrototype__proto.format            = format;
+    momentPrototype__proto.from              = from;
+    momentPrototype__proto.fromNow           = fromNow;
+    momentPrototype__proto.to                = to;
+    momentPrototype__proto.toNow             = toNow;
+    momentPrototype__proto.get               = getSet;
+    momentPrototype__proto.invalidAt         = invalidAt;
+    momentPrototype__proto.isAfter           = isAfter;
+    momentPrototype__proto.isBefore          = isBefore;
+    momentPrototype__proto.isBetween         = isBetween;
+    momentPrototype__proto.isSame            = isSame;
+    momentPrototype__proto.isSameOrAfter     = isSameOrAfter;
+    momentPrototype__proto.isSameOrBefore    = isSameOrBefore;
+    momentPrototype__proto.isValid           = moment_valid__isValid;
+    momentPrototype__proto.lang              = lang;
+    momentPrototype__proto.locale            = locale;
+    momentPrototype__proto.localeData        = localeData;
+    momentPrototype__proto.max               = prototypeMax;
+    momentPrototype__proto.min               = prototypeMin;
+    momentPrototype__proto.parsingFlags      = parsingFlags;
+    momentPrototype__proto.set               = getSet;
+    momentPrototype__proto.startOf           = startOf;
+    momentPrototype__proto.subtract          = add_subtract__subtract;
+    momentPrototype__proto.toArray           = toArray;
+    momentPrototype__proto.toObject          = toObject;
+    momentPrototype__proto.toDate            = toDate;
+    momentPrototype__proto.toISOString       = moment_format__toISOString;
+    momentPrototype__proto.toJSON            = toJSON;
+    momentPrototype__proto.toString          = toString;
+    momentPrototype__proto.unix              = unix;
+    momentPrototype__proto.valueOf           = to_type__valueOf;
+    momentPrototype__proto.creationData      = creationData;
+
+    // Year
+    momentPrototype__proto.year       = getSetYear;
+    momentPrototype__proto.isLeapYear = getIsLeapYear;
+
+    // Week Year
+    momentPrototype__proto.weekYear    = getSetWeekYear;
+    momentPrototype__proto.isoWeekYear = getSetISOWeekYear;
+
+    // Quarter
+    momentPrototype__proto.quarter = momentPrototype__proto.quarters = getSetQuarter;
+
+    // Month
+    momentPrototype__proto.month       = getSetMonth;
+    momentPrototype__proto.daysInMonth = getDaysInMonth;
+
+    // Week
+    momentPrototype__proto.week           = momentPrototype__proto.weeks        = getSetWeek;
+    momentPrototype__proto.isoWeek        = momentPrototype__proto.isoWeeks     = getSetISOWeek;
+    momentPrototype__proto.weeksInYear    = getWeeksInYear;
+    momentPrototype__proto.isoWeeksInYear = getISOWeeksInYear;
+
+    // Day
+    momentPrototype__proto.date       = getSetDayOfMonth;
+    momentPrototype__proto.day        = momentPrototype__proto.days             = getSetDayOfWeek;
+    momentPrototype__proto.weekday    = getSetLocaleDayOfWeek;
+    momentPrototype__proto.isoWeekday = getSetISODayOfWeek;
+    momentPrototype__proto.dayOfYear  = getSetDayOfYear;
+
+    // Hour
+    momentPrototype__proto.hour = momentPrototype__proto.hours = getSetHour;
+
+    // Minute
+    momentPrototype__proto.minute = momentPrototype__proto.minutes = getSetMinute;
+
+    // Second
+    momentPrototype__proto.second = momentPrototype__proto.seconds = getSetSecond;
+
+    // Millisecond
+    momentPrototype__proto.millisecond = momentPrototype__proto.milliseconds = getSetMillisecond;
+
+    // Offset
+    momentPrototype__proto.utcOffset            = getSetOffset;
+    momentPrototype__proto.utc                  = setOffsetToUTC;
+    momentPrototype__proto.local                = setOffsetToLocal;
+    momentPrototype__proto.parseZone            = setOffsetToParsedOffset;
+    momentPrototype__proto.hasAlignedHourOffset = hasAlignedHourOffset;
+    momentPrototype__proto.isDST                = isDaylightSavingTime;
+    momentPrototype__proto.isDSTShifted         = isDaylightSavingTimeShifted;
+    momentPrototype__proto.isLocal              = isLocal;
+    momentPrototype__proto.isUtcOffset          = isUtcOffset;
+    momentPrototype__proto.isUtc                = isUtc;
+    momentPrototype__proto.isUTC                = isUtc;
+
+    // Timezone
+    momentPrototype__proto.zoneAbbr = getZoneAbbr;
+    momentPrototype__proto.zoneName = getZoneName;
+
+    // Deprecations
+    momentPrototype__proto.dates  = deprecate('dates accessor is deprecated. Use date instead.', getSetDayOfMonth);
+    momentPrototype__proto.months = deprecate('months accessor is deprecated. Use month instead', getSetMonth);
+    momentPrototype__proto.years  = deprecate('years accessor is deprecated. Use year instead', getSetYear);
+    momentPrototype__proto.zone   = deprecate('moment().zone is deprecated, use moment().utcOffset instead. https://github.com/moment/moment/issues/1779', getSetZone);
+
+    var momentPrototype = momentPrototype__proto;
+
+    function moment__createUnix (input) {
+        return local__createLocal(input * 1000);
+    }
+
+    function moment__createInZone () {
+        return local__createLocal.apply(null, arguments).parseZone();
+    }
+
+    var defaultCalendar = {
+        sameDay : '[Today at] LT',
+        nextDay : '[Tomorrow at] LT',
+        nextWeek : 'dddd [at] LT',
+        lastDay : '[Yesterday at] LT',
+        lastWeek : '[Last] dddd [at] LT',
+        sameElse : 'L'
+    };
+
+    function locale_calendar__calendar (key, mom, now) {
+        var output = this._calendar[key];
+        return isFunction(output) ? output.call(mom, now) : output;
+    }
+
+    var defaultLongDateFormat = {
+        LTS  : 'h:mm:ss A',
+        LT   : 'h:mm A',
+        L    : 'MM/DD/YYYY',
+        LL   : 'MMMM D, YYYY',
+        LLL  : 'MMMM D, YYYY h:mm A',
+        LLLL : 'dddd, MMMM D, YYYY h:mm A'
+    };
+
+    function longDateFormat (key) {
+        var format = this._longDateFormat[key],
+            formatUpper = this._longDateFormat[key.toUpperCase()];
+
+        if (format || !formatUpper) {
+            return format;
+        }
+
+        this._longDateFormat[key] = formatUpper.replace(/MMMM|MM|DD|dddd/g, function (val) {
+            return val.slice(1);
+        });
+
+        return this._longDateFormat[key];
+    }
+
+    var defaultInvalidDate = 'Invalid date';
+
+    function invalidDate () {
+        return this._invalidDate;
+    }
+
+    var defaultOrdinal = '%d';
+    var defaultOrdinalParse = /\d{1,2}/;
+
+    function ordinal (number) {
+        return this._ordinal.replace('%d', number);
+    }
+
+    function preParsePostFormat (string) {
+        return string;
+    }
+
+    var defaultRelativeTime = {
+        future : 'in %s',
+        past   : '%s ago',
+        s  : 'a few seconds',
+        m  : 'a minute',
+        mm : '%d minutes',
+        h  : 'an hour',
+        hh : '%d hours',
+        d  : 'a day',
+        dd : '%d days',
+        M  : 'a month',
+        MM : '%d months',
+        y  : 'a year',
+        yy : '%d years'
+    };
+
+    function relative__relativeTime (number, withoutSuffix, string, isFuture) {
+        var output = this._relativeTime[string];
+        return (isFunction(output)) ?
+            output(number, withoutSuffix, string, isFuture) :
+            output.replace(/%d/i, number);
+    }
+
+    function pastFuture (diff, output) {
+        var format = this._relativeTime[diff > 0 ? 'future' : 'past'];
+        return isFunction(format) ? format(output) : format.replace(/%s/i, output);
+    }
+
+    var prototype__proto = Locale.prototype;
+
+    prototype__proto._calendar       = defaultCalendar;
+    prototype__proto.calendar        = locale_calendar__calendar;
+    prototype__proto._longDateFormat = defaultLongDateFormat;
+    prototype__proto.longDateFormat  = longDateFormat;
+    prototype__proto._invalidDate    = defaultInvalidDate;
+    prototype__proto.invalidDate     = invalidDate;
+    prototype__proto._ordinal        = defaultOrdinal;
+    prototype__proto.ordinal         = ordinal;
+    prototype__proto._ordinalParse   = defaultOrdinalParse;
+    prototype__proto.preparse        = preParsePostFormat;
+    prototype__proto.postformat      = preParsePostFormat;
+    prototype__proto._relativeTime   = defaultRelativeTime;
+    prototype__proto.relativeTime    = relative__relativeTime;
+    prototype__proto.pastFuture      = pastFuture;
+    prototype__proto.set             = locale_set__set;
+
+    // Month
+    prototype__proto.months            =        localeMonths;
+    prototype__proto._months           = defaultLocaleMonths;
+    prototype__proto.monthsShort       =        localeMonthsShort;
+    prototype__proto._monthsShort      = defaultLocaleMonthsShort;
+    prototype__proto.monthsParse       =        localeMonthsParse;
+    prototype__proto._monthsRegex      = defaultMonthsRegex;
+    prototype__proto.monthsRegex       = monthsRegex;
+    prototype__proto._monthsShortRegex = defaultMonthsShortRegex;
+    prototype__proto.monthsShortRegex  = monthsShortRegex;
+
+    // Week
+    prototype__proto.week = localeWeek;
+    prototype__proto._week = defaultLocaleWeek;
+    prototype__proto.firstDayOfYear = localeFirstDayOfYear;
+    prototype__proto.firstDayOfWeek = localeFirstDayOfWeek;
+
+    // Day of Week
+    prototype__proto.weekdays       =        localeWeekdays;
+    prototype__proto._weekdays      = defaultLocaleWeekdays;
+    prototype__proto.weekdaysMin    =        localeWeekdaysMin;
+    prototype__proto._weekdaysMin   = defaultLocaleWeekdaysMin;
+    prototype__proto.weekdaysShort  =        localeWeekdaysShort;
+    prototype__proto._weekdaysShort = defaultLocaleWeekdaysShort;
+    prototype__proto.weekdaysParse  =        localeWeekdaysParse;
+
+    prototype__proto._weekdaysRegex      = defaultWeekdaysRegex;
+    prototype__proto.weekdaysRegex       =        weekdaysRegex;
+    prototype__proto._weekdaysShortRegex = defaultWeekdaysShortRegex;
+    prototype__proto.weekdaysShortRegex  =        weekdaysShortRegex;
+    prototype__proto._weekdaysMinRegex   = defaultWeekdaysMinRegex;
+    prototype__proto.weekdaysMinRegex    =        weekdaysMinRegex;
+
+    // Hours
+    prototype__proto.isPM = localeIsPM;
+    prototype__proto._meridiemParse = defaultLocaleMeridiemParse;
+    prototype__proto.meridiem = localeMeridiem;
+
+    function lists__get (format, index, field, setter) {
+        var locale = locale_locales__getLocale();
+        var utc = create_utc__createUTC().set(setter, index);
+        return locale[field](utc, format);
+    }
+
+    function listMonthsImpl (format, index, field) {
+        if (typeof format === 'number') {
+            index = format;
+            format = undefined;
+        }
+
+        format = format || '';
+
+        if (index != null) {
+            return lists__get(format, index, field, 'month');
+        }
+
+        var i;
+        var out = [];
+        for (i = 0; i < 12; i++) {
+            out[i] = lists__get(format, i, field, 'month');
+        }
+        return out;
+    }
+
+    // ()
+    // (5)
+    // (fmt, 5)
+    // (fmt)
+    // (true)
+    // (true, 5)
+    // (true, fmt, 5)
+    // (true, fmt)
+    function listWeekdaysImpl (localeSorted, format, index, field) {
+        if (typeof localeSorted === 'boolean') {
+            if (typeof format === 'number') {
+                index = format;
+                format = undefined;
+            }
+
+            format = format || '';
+        } else {
+            format = localeSorted;
+            index = format;
+            localeSorted = false;
+
+            if (typeof format === 'number') {
+                index = format;
+                format = undefined;
+            }
+
+            format = format || '';
+        }
+
+        var locale = locale_locales__getLocale(),
+            shift = localeSorted ? locale._week.dow : 0;
+
+        if (index != null) {
+            return lists__get(format, (index + shift) % 7, field, 'day');
+        }
+
+        var i;
+        var out = [];
+        for (i = 0; i < 7; i++) {
+            out[i] = lists__get(format, (i + shift) % 7, field, 'day');
+        }
+        return out;
+    }
+
+    function lists__listMonths (format, index) {
+        return listMonthsImpl(format, index, 'months');
+    }
+
+    function lists__listMonthsShort (format, index) {
+        return listMonthsImpl(format, index, 'monthsShort');
+    }
+
+    function lists__listWeekdays (localeSorted, format, index) {
+        return listWeekdaysImpl(localeSorted, format, index, 'weekdays');
+    }
+
+    function lists__listWeekdaysShort (localeSorted, format, index) {
+        return listWeekdaysImpl(localeSorted, format, index, 'weekdaysShort');
+    }
+
+    function lists__listWeekdaysMin (localeSorted, format, index) {
+        return listWeekdaysImpl(localeSorted, format, index, 'weekdaysMin');
+    }
+
+    locale_locales__getSetGlobalLocale('en', {
+        ordinalParse: /\d{1,2}(th|st|nd|rd)/,
+        ordinal : function (number) {
+            var b = number % 10,
+                output = (toInt(number % 100 / 10) === 1) ? 'th' :
+                (b === 1) ? 'st' :
+                (b === 2) ? 'nd' :
+                (b === 3) ? 'rd' : 'th';
+            return number + output;
+        }
+    });
+
+    // Side effect imports
+    utils_hooks__hooks.lang = deprecate('moment.lang is deprecated. Use moment.locale instead.', locale_locales__getSetGlobalLocale);
+    utils_hooks__hooks.langData = deprecate('moment.langData is deprecated. Use moment.localeData instead.', locale_locales__getLocale);
+
+    var mathAbs = Math.abs;
+
+    function duration_abs__abs () {
+        var data           = this._data;
+
+        this._milliseconds = mathAbs(this._milliseconds);
+        this._days         = mathAbs(this._days);
+        this._months       = mathAbs(this._months);
+
+        data.milliseconds  = mathAbs(data.milliseconds);
+        data.seconds       = mathAbs(data.seconds);
+        data.minutes       = mathAbs(data.minutes);
+        data.hours         = mathAbs(data.hours);
+        data.months        = mathAbs(data.months);
+        data.years         = mathAbs(data.years);
+
+        return this;
+    }
+
+    function duration_add_subtract__addSubtract (duration, input, value, direction) {
+        var other = create__createDuration(input, value);
+
+        duration._milliseconds += direction * other._milliseconds;
+        duration._days         += direction * other._days;
+        duration._months       += direction * other._months;
+
+        return duration._bubble();
+    }
+
+    // supports only 2.0-style add(1, 's') or add(duration)
+    function duration_add_subtract__add (input, value) {
+        return duration_add_subtract__addSubtract(this, input, value, 1);
+    }
+
+    // supports only 2.0-style subtract(1, 's') or subtract(duration)
+    function duration_add_subtract__subtract (input, value) {
+        return duration_add_subtract__addSubtract(this, input, value, -1);
+    }
+
+    function absCeil (number) {
+        if (number < 0) {
+            return Math.floor(number);
+        } else {
+            return Math.ceil(number);
+        }
+    }
+
+    function bubble () {
+        var milliseconds = this._milliseconds;
+        var days         = this._days;
+        var months       = this._months;
+        var data         = this._data;
+        var seconds, minutes, hours, years, monthsFromDays;
+
+        // if we have a mix of positive and negative values, bubble down first
+        // check: https://github.com/moment/moment/issues/2166
+        if (!((milliseconds >= 0 && days >= 0 && months >= 0) ||
+                (milliseconds <= 0 && days <= 0 && months <= 0))) {
+            milliseconds += absCeil(monthsToDays(months) + days) * 864e5;
+            days = 0;
+            months = 0;
+        }
+
+        // The following code bubbles up values, see the tests for
+        // examples of what that means.
+        data.milliseconds = milliseconds % 1000;
+
+        seconds           = absFloor(milliseconds / 1000);
+        data.seconds      = seconds % 60;
+
+        minutes           = absFloor(seconds / 60);
+        data.minutes      = minutes % 60;
+
+        hours             = absFloor(minutes / 60);
+        data.hours        = hours % 24;
+
+        days += absFloor(hours / 24);
+
+        // convert days to months
+        monthsFromDays = absFloor(daysToMonths(days));
+        months += monthsFromDays;
+        days -= absCeil(monthsToDays(monthsFromDays));
+
+        // 12 months -> 1 year
+        years = absFloor(months / 12);
+        months %= 12;
+
+        data.days   = days;
+        data.months = months;
+        data.years  = years;
+
+        return this;
+    }
+
+    function daysToMonths (days) {
+        // 400 years have 146097 days (taking into account leap year rules)
+        // 400 years have 12 months === 4800
+        return days * 4800 / 146097;
+    }
+
+    function monthsToDays (months) {
+        // the reverse of daysToMonths
+        return months * 146097 / 4800;
+    }
+
+    function as (units) {
+        var days;
+        var months;
+        var milliseconds = this._milliseconds;
+
+        units = normalizeUnits(units);
+
+        if (units === 'month' || units === 'year') {
+            days   = this._days   + milliseconds / 864e5;
+            months = this._months + daysToMonths(days);
+            return units === 'month' ? months : months / 12;
+        } else {
+            // handle milliseconds separately because of floating point math errors (issue #1867)
+            days = this._days + Math.round(monthsToDays(this._months));
+            switch (units) {
+                case 'week'   : return days / 7     + milliseconds / 6048e5;
+                case 'day'    : return days         + milliseconds / 864e5;
+                case 'hour'   : return days * 24    + milliseconds / 36e5;
+                case 'minute' : return days * 1440  + milliseconds / 6e4;
+                case 'second' : return days * 86400 + milliseconds / 1000;
+                // Math.floor prevents floating point math errors here
+                case 'millisecond': return Math.floor(days * 864e5) + milliseconds;
+                default: throw new Error('Unknown unit ' + units);
+            }
+        }
+    }
+
+    // TODO: Use this.as('ms')?
+    function duration_as__valueOf () {
+        return (
+            this._milliseconds +
+            this._days * 864e5 +
+            (this._months % 12) * 2592e6 +
+            toInt(this._months / 12) * 31536e6
+        );
+    }
+
+    function makeAs (alias) {
+        return function () {
+            return this.as(alias);
+        };
+    }
+
+    var asMilliseconds = makeAs('ms');
+    var asSeconds      = makeAs('s');
+    var asMinutes      = makeAs('m');
+    var asHours        = makeAs('h');
+    var asDays         = makeAs('d');
+    var asWeeks        = makeAs('w');
+    var asMonths       = makeAs('M');
+    var asYears        = makeAs('y');
+
+    function duration_get__get (units) {
+        units = normalizeUnits(units);
+        return this[units + 's']();
+    }
+
+    function makeGetter(name) {
+        return function () {
+            return this._data[name];
+        };
+    }
+
+    var milliseconds = makeGetter('milliseconds');
+    var seconds      = makeGetter('seconds');
+    var minutes      = makeGetter('minutes');
+    var hours        = makeGetter('hours');
+    var days         = makeGetter('days');
+    var months       = makeGetter('months');
+    var years        = makeGetter('years');
+
+    function weeks () {
+        return absFloor(this.days() / 7);
+    }
+
+    var round = Math.round;
+    var thresholds = {
+        s: 45,  // seconds to minute
+        m: 45,  // minutes to hour
+        h: 22,  // hours to day
+        d: 26,  // days to month
+        M: 11   // months to year
+    };
+
+    // helper function for moment.fn.from, moment.fn.fromNow, and moment.duration.fn.humanize
+    function substituteTimeAgo(string, number, withoutSuffix, isFuture, locale) {
+        return locale.relativeTime(number || 1, !!withoutSuffix, string, isFuture);
+    }
+
+    function duration_humanize__relativeTime (posNegDuration, withoutSuffix, locale) {
+        var duration = create__createDuration(posNegDuration).abs();
+        var seconds  = round(duration.as('s'));
+        var minutes  = round(duration.as('m'));
+        var hours    = round(duration.as('h'));
+        var days     = round(duration.as('d'));
+        var months   = round(duration.as('M'));
+        var years    = round(duration.as('y'));
+
+        var a = seconds < thresholds.s && ['s', seconds]  ||
+                minutes <= 1           && ['m']           ||
+                minutes < thresholds.m && ['mm', minutes] ||
+                hours   <= 1           && ['h']           ||
+                hours   < thresholds.h && ['hh', hours]   ||
+                days    <= 1           && ['d']           ||
+                days    < thresholds.d && ['dd', days]    ||
+                months  <= 1           && ['M']           ||
+                months  < thresholds.M && ['MM', months]  ||
+                years   <= 1           && ['y']           || ['yy', years];
+
+        a[2] = withoutSuffix;
+        a[3] = +posNegDuration > 0;
+        a[4] = locale;
+        return substituteTimeAgo.apply(null, a);
+    }
+
+    // This function allows you to set a threshold for relative time strings
+    function duration_humanize__getSetRelativeTimeThreshold (threshold, limit) {
+        if (thresholds[threshold] === undefined) {
+            return false;
+        }
+        if (limit === undefined) {
+            return thresholds[threshold];
+        }
+        thresholds[threshold] = limit;
+        return true;
+    }
+
+    function humanize (withSuffix) {
+        var locale = this.localeData();
+        var output = duration_humanize__relativeTime(this, !withSuffix, locale);
+
+        if (withSuffix) {
+            output = locale.pastFuture(+this, output);
+        }
+
+        return locale.postformat(output);
+    }
+
+    var iso_string__abs = Math.abs;
+
+    function iso_string__toISOString() {
+        // for ISO strings we do not use the normal bubbling rules:
+        //  * milliseconds bubble up until they become hours
+        //  * days do not bubble at all
+        //  * months bubble up until they become years
+        // This is because there is no context-free conversion between hours and days
+        // (think of clock changes)
+        // and also not between days and months (28-31 days per month)
+        var seconds = iso_string__abs(this._milliseconds) / 1000;
+        var days         = iso_string__abs(this._days);
+        var months       = iso_string__abs(this._months);
+        var minutes, hours, years;
+
+        // 3600 seconds -> 60 minutes -> 1 hour
+        minutes           = absFloor(seconds / 60);
+        hours             = absFloor(minutes / 60);
+        seconds %= 60;
+        minutes %= 60;
+
+        // 12 months -> 1 year
+        years  = absFloor(months / 12);
+        months %= 12;
+
+
+        // inspired by https://github.com/dordille/moment-isoduration/blob/master/moment.isoduration.js
+        var Y = years;
+        var M = months;
+        var D = days;
+        var h = hours;
+        var m = minutes;
+        var s = seconds;
+        var total = this.asSeconds();
+
+        if (!total) {
+            // this is the same as C#'s (Noda) and python (isodate)...
+            // but not other JS (goog.date)
+            return 'P0D';
+        }
+
+        return (total < 0 ? '-' : '') +
+            'P' +
+            (Y ? Y + 'Y' : '') +
+            (M ? M + 'M' : '') +
+            (D ? D + 'D' : '') +
+            ((h || m || s) ? 'T' : '') +
+            (h ? h + 'H' : '') +
+            (m ? m + 'M' : '') +
+            (s ? s + 'S' : '');
+    }
+
+    var duration_prototype__proto = Duration.prototype;
+
+    duration_prototype__proto.abs            = duration_abs__abs;
+    duration_prototype__proto.add            = duration_add_subtract__add;
+    duration_prototype__proto.subtract       = duration_add_subtract__subtract;
+    duration_prototype__proto.as             = as;
+    duration_prototype__proto.asMilliseconds = asMilliseconds;
+    duration_prototype__proto.asSeconds      = asSeconds;
+    duration_prototype__proto.asMinutes      = asMinutes;
+    duration_prototype__proto.asHours        = asHours;
+    duration_prototype__proto.asDays         = asDays;
+    duration_prototype__proto.asWeeks        = asWeeks;
+    duration_prototype__proto.asMonths       = asMonths;
+    duration_prototype__proto.asYears        = asYears;
+    duration_prototype__proto.valueOf        = duration_as__valueOf;
+    duration_prototype__proto._bubble        = bubble;
+    duration_prototype__proto.get            = duration_get__get;
+    duration_prototype__proto.milliseconds   = milliseconds;
+    duration_prototype__proto.seconds        = seconds;
+    duration_prototype__proto.minutes        = minutes;
+    duration_prototype__proto.hours          = hours;
+    duration_prototype__proto.days           = days;
+    duration_prototype__proto.weeks          = weeks;
+    duration_prototype__proto.months         = months;
+    duration_prototype__proto.years          = years;
+    duration_prototype__proto.humanize       = humanize;
+    duration_prototype__proto.toISOString    = iso_string__toISOString;
+    duration_prototype__proto.toString       = iso_string__toISOString;
+    duration_prototype__proto.toJSON         = iso_string__toISOString;
+    duration_prototype__proto.locale         = locale;
+    duration_prototype__proto.localeData     = localeData;
+
+    // Deprecations
+    duration_prototype__proto.toIsoString = deprecate('toIsoString() is deprecated. Please use toISOString() instead (notice the capitals)', iso_string__toISOString);
+    duration_prototype__proto.lang = lang;
+
+    // Side effect imports
+
+    // FORMATTING
+
+    addFormatToken('X', 0, 0, 'unix');
+    addFormatToken('x', 0, 0, 'valueOf');
+
+    // PARSING
+
+    addRegexToken('x', matchSigned);
+    addRegexToken('X', matchTimestamp);
+    addParseToken('X', function (input, array, config) {
+        config._d = new Date(parseFloat(input, 10) * 1000);
+    });
+    addParseToken('x', function (input, array, config) {
+        config._d = new Date(toInt(input));
+    });
+
+    // Side effect imports
+
+
+    utils_hooks__hooks.version = '2.13.0';
+
+    setHookCallback(local__createLocal);
+
+    utils_hooks__hooks.fn                    = momentPrototype;
+    utils_hooks__hooks.min                   = min;
+    utils_hooks__hooks.max                   = max;
+    utils_hooks__hooks.now                   = now;
+    utils_hooks__hooks.utc                   = create_utc__createUTC;
+    utils_hooks__hooks.unix                  = moment__createUnix;
+    utils_hooks__hooks.months                = lists__listMonths;
+    utils_hooks__hooks.isDate                = isDate;
+    utils_hooks__hooks.locale                = locale_locales__getSetGlobalLocale;
+    utils_hooks__hooks.invalid               = valid__createInvalid;
+    utils_hooks__hooks.duration              = create__createDuration;
+    utils_hooks__hooks.isMoment              = isMoment;
+    utils_hooks__hooks.weekdays              = lists__listWeekdays;
+    utils_hooks__hooks.parseZone             = moment__createInZone;
+    utils_hooks__hooks.localeData            = locale_locales__getLocale;
+    utils_hooks__hooks.isDuration            = isDuration;
+    utils_hooks__hooks.monthsShort           = lists__listMonthsShort;
+    utils_hooks__hooks.weekdaysMin           = lists__listWeekdaysMin;
+    utils_hooks__hooks.defineLocale          = defineLocale;
+    utils_hooks__hooks.updateLocale          = updateLocale;
+    utils_hooks__hooks.locales               = locale_locales__listLocales;
+    utils_hooks__hooks.weekdaysShort         = lists__listWeekdaysShort;
+    utils_hooks__hooks.normalizeUnits        = normalizeUnits;
+    utils_hooks__hooks.relativeTimeThreshold = duration_humanize__getSetRelativeTimeThreshold;
+    utils_hooks__hooks.prototype             = momentPrototype;
+
+    var _moment = utils_hooks__hooks;
+
+    return _moment;
+
+}));
+},{}],38:[function(require,module,exports){
 'use strict';
 
 (function (factory) {
@@ -15807,7 +21040,6 @@ if (typeof define == TYPE_FUNCTION && define.amd) {
   }
 }(function () {
   var _firstTarget = null; // singleton, will contain the target element where the touch event started
-  var _processing = false; // singleton, true when a touch event is being handled
 
   /**
    * Extend an Hammer.js instance with event propagation.
@@ -15825,7 +21057,7 @@ if (typeof define == TYPE_FUNCTION && define.amd) {
    *
    * @param {Hammer.Manager} hammer   An hammer instance.
    * @param {Object} [options]        Available options:
-   *                                  - `preventDefault: true | 'mouse' | 'touch' | 'pen'`.
+   *                                  - `preventDefault: true | false | 'mouse' | 'touch' | 'pen'`.
    *                                    Enforce preventing the default browser behavior.
    *                                    Cannot be set to `false`.
    * @return {Hammer.Manager} Returns the same hammer instance with extended
@@ -15843,14 +21075,14 @@ if (typeof define == TYPE_FUNCTION && define.amd) {
 
       var PropagatingHammer = function(element, options) {
         var o = Object.create(_options);
-        if (options) Hammer.extend(o, options);
+        if (options) Hammer.assign(o, options);
         return propagating(new Hammer(element, o), o);
       };
-      Hammer.extend(PropagatingHammer, Hammer);
+      Hammer.assign(PropagatingHammer, Hammer);
 
       PropagatingHammer.Manager = function (element, options) {
         var o = Object.create(_options);
-        if (options) Hammer.extend(o, options);
+        if (options) Hammer.assign(o, options);
         return propagating(new Hammer.Manager(element, o), o);
       };
 
@@ -15863,7 +21095,9 @@ if (typeof define == TYPE_FUNCTION && define.amd) {
 
     // attach to DOM element
     var element = hammer.element;
-    element.hammer = wrapper;
+
+    if(!element.hammer) element.hammer = [];
+    element.hammer.push(wrapper);
 
     // register an event to catch the start of a gesture and store the
     // target in a singleton
@@ -15944,7 +21178,10 @@ if (typeof define == TYPE_FUNCTION && define.amd) {
 
     wrapper.destroy = function () {
       // Detach from DOM element
-      delete hammer.element.hammer;
+      var hammers = hammer.element.hammer;
+      var idx = hammers.indexOf(wrapper);
+      if(idx !== -1) hammers.splice(idx,1);
+      if(!hammers.length) delete hammer.element.hammer;
 
       // clear all handlers
       wrapper._handlers = {};
@@ -15985,19 +21222,31 @@ if (typeof define == TYPE_FUNCTION && define.amd) {
         stopped = true;
       };
 
+      //wrap the srcEvent's stopPropagation to also stop hammer propagation:
+      var srcStop = event.srcEvent.stopPropagation.bind(event.srcEvent);
+      if(typeof srcStop == "function") {
+        event.srcEvent.stopPropagation = function(){
+          srcStop();
+          event.stopPropagation();
+        }
+      }
+
       // attach firstTarget property to the event
       event.firstTarget = _firstTarget;
 
       // propagate over all elements (until stopped)
       var elem = _firstTarget;
       while (elem && !stopped) {
-        var _handlers = elem.hammer && elem.hammer._handlers[event.type];
-        if (_handlers) {
-          for (var i = 0; i < _handlers.length && !stopped; i++) {
-            _handlers[i](event);
+        var elemHammer = elem.hammer;
+        if(elemHammer){
+          var _handlers;
+          for(var k = 0; k < elemHammer.length; k++){
+            _handlers = elemHammer[k]._handlers[event.type];
+            if(_handlers) for (var i = 0; i < _handlers.length && !stopped; i++) {
+              _handlers[i](event);
+            }
           }
         }
-
         elem = elem.parentNode;
       }
     }
